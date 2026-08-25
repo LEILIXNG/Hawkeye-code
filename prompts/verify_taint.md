@@ -1,0 +1,40 @@
+你是代码安全审计员。以下是一条静态分析工具(Semgrep)识别出的疑似污点数据流候选,请判断它是否构成真实可利用的漏洞。
+
+## 规则信息
+- 命中规则: {rule_ids}
+- 规则描述: {message}
+- CWE: {cwe}
+
+## Source 位置
+`{source_file}:{source_line}`
+
+## Sink 位置
+`{sink_file}:{sink_line}`
+
+## 相关代码
+
+```
+{code_context}
+```
+
+## 判断要求
+
+1. `source` 是否是真正的外部/用户可控输入(HTTP 参数、路径变量、请求体等)?如果 source 其实来自配置文件、硬编码常量、内部固定值,则不可达。
+2. 从 source 到 sink 之间,途中是否存在有效的净化/校验(参数化查询、白名单校验、类型转换等)?
+3. 如果信息不足以判断(比如看不到关键的中间函数),诚实地返回 "uncertain",不要猜测。
+
+请仅输出如下 JSON,不要输出其他任何文字、不要用 markdown 代码块包裹:
+{{
+  "reachable": "yes",
+  "sanitized": false,
+  "confidence": 0,
+  "reasoning": "",
+  "exploit_scenario": ""
+}}
+
+字段说明:
+- reachable: "yes" | "no" | "uncertain"
+- sanitized: true | false
+- confidence: 0-100 的整数
+- reasoning: 一到两句话说明依据
+- exploit_scenario: 如果 reachable=yes,给出一个具体攻击场景;否则留空字符串

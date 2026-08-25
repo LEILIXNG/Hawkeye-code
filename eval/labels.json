@@ -1,0 +1,56 @@
+[
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/ssrf/SSRFVulnerability.java",
+    "line": 129,
+    "expected_reachable": "yes",
+    "note": "SSRF LEVEL_3, only blocks 169.254.169.254 by exact match, real teaching vuln"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/ssrf/SSRFVulnerability.java",
+    "line": 146,
+    "expected_reachable": "yes",
+    "note": "SSRF LEVEL_4, mocked metadata filter, real teaching vuln"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/ssrf/SSRFVulnerability.java",
+    "line": 66,
+    "expected_reachable": "yes",
+    "note": "SSRF lower level, essentially unvalidated, real teaching vuln"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/rfi/UrlParamBasedRFI.java",
+    "line": 43,
+    "expected_reachable": "yes",
+    "note": "RFI level 1, url param used unchecked, real teaching vuln"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/PreflightController.java",
+    "line": 46,
+    "expected_reachable": "yes",
+    "note": "path traversal, fileName resolved without normalization/whitelist"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/commandInjection/CommandInjection.java",
+    "line": 47,
+    "expected_reachable": "yes",
+    "note": "ipAddress concatenated into sh -c ping command"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/commandInjection/CommandInjection.java",
+    "line": 52,
+    "expected_reachable": "yes",
+    "note": "same sink, Windows cmd /c branch"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/authentication/AuthLoginService.java",
+    "line": 51,
+    "expected_reachable": "yes",
+    "note": "username/password string-concatenated into SQL, classic login SQLi"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/configuration/VulnerableAppConfiguration.java",
+    "line": 135,
+    "expected_reachable": "no",
+    "note": "String.format into CREATE USER statement, but the password comes from application.properties, not user input -- known false positive"
+  }
+]

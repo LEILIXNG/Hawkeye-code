@@ -1,0 +1,2 @@
+semgrep>=1.170
+anthropic>=0.40
