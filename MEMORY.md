@@ -12,7 +12,7 @@
 
 - [x] `git init` 建好本地仓库(`sast-local/`),无远程,单用户本地开发
 - [x] `docs/framework.md` 完整架构设计(去 GitHub 版,纯本地工具,LLM 供应商可配置)
-- [x] `scripts/01_scan.py` 跑通:对 `VulnerableApp` 项目用 `p/java` 规则集扫描,60 条原始命中 → 37 条去重后候选,`--dataflow-traces` 跨函数追踪正常工作
+- [x] `scripts/01_scan.py` 跑通:默认规则集已改成 `p/java, p/security-audit, p/owasp-top-ten`(原来默认漏了 `p/java`,而 `p/java` 才是找出被 GitLab SAST 漏掉的 3 类 SQL 注入的关键),对 `VulnerableApp` 项目跑出 72 条原始命中 → 46 条去重后候选,`--dataflow-traces` 跨函数追踪正常工作
 - [x] `scripts/02_verify.py` 写完但**还没实际跑过**(需要 `OPENAI_API_KEY`,用户说先不运行)
 - [x] `02_verify.py` 从 Anthropic SDK 切到 **OpenAI Python SDK**(`client.chat.completions.create` + `response_format={"type":"json_object"}`),同时支持 `OPENAI_BASE_URL` 切换到其他 OpenAI 协议兼容供应商(DeepSeek/Kimi/通义千问等),`OPENAI_VERIFY_MODEL` 可覆盖默认模型(默认 `gpt-4o-mini`)
 - [x] `scripts/03_eval.py` 写完,配合 `eval/labels.json`(9 条人工核实过的标注,来自本次对话早期对 GitLab SAST 报告的逐条分析)
@@ -25,7 +25,7 @@
    cd scripts
    python 02_verify.py --target "/c/Users/27297/OneDrive/Desktop/test/VulnerableApp-master/src" --limit 10
    ```
-   建议先用 `--limit 10` 小批量跑,确认 Prompt/解析没问题,再跑全量(37 条)。
+   建议先用 `--limit 10` 小批量跑,确认 Prompt/解析没问题,再跑全量(现在是 46 条)。
 2. **跑 `03_eval.py`** 看一致率:
    ```bash
    python 03_eval.py
@@ -35,6 +35,7 @@
    - 如果一致率高(比如 ≥8/9):说明思路可行,可以开始往真正的调用图提取(替代现在"固定行窗口"的简化版 context 提取)投入
    - 如果一致率低:先别急着加功能,回去改 `prompts/verify_taint.md`,重新跑评估,直到稳定
 4. 之后按 `docs/framework.md` §8 分阶段计划推进到 Phase 1(FastAPI + 前端)
+5. **规则库还没按框架 §2 的设计落地**:目前是硬编码在 `01_scan.py` 里的 Registry 短名(`p/java,p/security-audit,p/owasp-top-ten`),没有 `rules/vendor/`、`rules/custom/`、`rules/ruleset.yml` 这套目录,也没做过"摸底+精简"(统计每条规则命中数/误报率、砍掉噪音规则)。等 Phase 0 核心验证跑完、确认思路可行之后再补,不用现在优先做。
 
 ## 关键决策记录(避免以后重新踩坑)
 
