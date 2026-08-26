@@ -17,6 +17,7 @@
 - [x] `02_verify.py` 从 Anthropic SDK 切到 **OpenAI Python SDK**(`client.chat.completions.create` + `response_format={"type":"json_object"}`),同时支持 `OPENAI_BASE_URL` 切换到其他 OpenAI 协议兼容供应商(DeepSeek/Kimi/通义千问等),`OPENAI_VERIFY_MODEL` 可覆盖默认模型(默认 `gpt-4o-mini`)
 - [x] `scripts/03_eval.py` 写完,配合 `eval/labels.json`(9 条人工核实过的标注,来自本次对话早期对 GitLab SAST 报告的逐条分析)
 - [x] `CLAUDE.md` 开发规范
+- [x] `tests/test_scan.py`(pytest,10 条用例)覆盖 `01_scan.py` 的确定性函数:`extract_source_location`(含真实 tagged-tuple 结构、无 trace、trace 畸形三种情况)、`normalize`、`dedup`(含"CommandInjection 共享 sink 但不同 source 不能被误合并"的回归测试)、`relpath`。全部通过。
 
 ## 未完成 / 下一步入口
 

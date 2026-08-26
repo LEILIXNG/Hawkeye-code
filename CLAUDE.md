@@ -24,7 +24,8 @@
 
 ## 3. 测试要求
 
-- **确定性逻辑必须有单元测试**:去重(`dedup`)、路径归一化(`relpath`)、dataflow_trace 解析(`extract_source_location`)这类不依赖 LLM 的函数,改动时必须跑测试,不允许"跑一下脚本看输出对不对"就算测过。测试放 `tests/`,用标准库 `unittest` 或 `pytest`(选一个后固定下来,不要混用)。
+- **确定性逻辑必须有单元测试**:去重(`dedup`)、路径归一化(`relpath`)、dataflow_trace 解析(`extract_source_location`)这类不依赖 LLM 的函数,改动时必须跑测试,不允许"跑一下脚本看输出对不对"就算测过。测试放 `tests/`,统一用 **pytest**(已在 `requirements-dev.txt` 里,不要混用 `unittest`)。编号脚本(`01_scan.py` 这类)文件名不是合法模块名,测试里通过 `tests/conftest.py` 提供的 `importlib` 加载 fixture 导入,不要给脚本改名去迁就 `import` 语法。
+  跑测试:`python -m pytest tests/ -v`
 - **涉及 LLM 调用的部分不能在自动化测试/CI 里真实调用 API**——会产生费用且结果不确定性太高。用 `eval/run_eval.py` + `eval/labels.json` 这套评估基准来验证 LLM 层的效果,而不是把 LLM 调用包进单元测试里 mock 断言。
 - 每次改动 `prompts/verify_taint.md` 或换模型,必须重新跑一次 `eval/labels.json` 评估,并在 commit message 里记录准确率变化(比如"agreement 7/9 → 8/9")。不允许"感觉应该变好了"就合并。
 - 新增一类漏洞检测能力(比如加了新的 Semgrep 规则)时,`eval/labels.json` 里要跟着补对应的标注样本,不能只加规则不加标注。
