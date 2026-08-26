@@ -17,19 +17,16 @@
 - [x] `scripts/03_eval.py` 写完并修好一个真 bug:原来按完整相对路径匹配候选和 `labels.json`,但 `--target` 指到 `src/` 目录会导致候选路径缺 `src/` 前缀,9 条标注全部 `NOT FOUND`;改成按文件名(basename)+ 行号匹配,和 `--target` 指到哪一层无关
 - [x] `CLAUDE.md` 开发规范
 - [x] `tests/test_scan.py`(pytest,10 条用例)覆盖 `01_scan.py` 的确定性函数,全部通过
-- [x] **跑完整个 Phase 0 闭环(46 条候选,`glm-4-flash` 模型)**:7/9 标注被扫到并复核,一致率 **6/7(86%)**。两条问题:
-  1. `VulnerableAppConfiguration.java:135`(误报测试用例)判断错了——上下文里已经有 `@Value("${spring.datasource.application.password}")` 这行证据,模型还是判成 `reachable: yes`,理由是"a user-provided password"(没对应到代码证据,像是凭变量名猜的)。说明**证据链路本身没问题,是复核模型的推理能力不够**,下一步该换模型对比,不是改上下文提取逻辑。
-  2. `CommandInjection.java:47/52` **完全没被 Semgrep 扫到**——`p/java`+`p/security-audit`+`p/owasp-top-ten` 这几个公开 Registry 规则集里没有能命中 `new ProcessBuilder(new String[]{"sh","-c","ping -c 2 "+ipAddress})` 这种模式的规则。对比最早分析的 GitLab SAST 报告,它命中的是 `find_sec_bugs.COMMAND_INJECTION-1`,那是 GitLab 自己维护的移植规则,不在公开 Registry 里。这是真实的规则覆盖缺口,不是脚本 bug。
+- [x] **跑完整个 Phase 0 闭环(46 条候选,`glm-4-flash` 模型)**:7/9 标注被扫到并复核,一致率 6/7(86%)。发现两条问题:模型误判 `VulnerableAppConfiguration.java:135`(证据齐了但推理错),以及 `CommandInjection.java:47/52` 完全没被公开 Registry 规则扫到。
+- [x] **补了自定义规则**`rules/custom/java/command-injection.yml`(纯 pattern 规则,不是 taint 模式——按框架设计,Semgrep 这层只管把候选摆出来,可达性判断交给 LLM 复核层),接进 `01_scan.py` 的 `DEFAULT_CONFIGS`。重跑后 48 条候选,**9/9 标注全部被扫到,一致率提升到 8/9(89%)**。规则覆盖缺口已解决。
+- [x] `rules/` 目录结构起了个头(`rules/custom/java/`),框架 §2 设计的 `rules/vendor/`(submodule)、`rules/ruleset.yml`、"摸底+精简"还没做。
 
 ## 未完成 / 下一步入口
 
-1. **换个更强的模型重跑一次 `02_verify.py` + `03_eval.py`,对比一致率变化**——用来判断 `VulnerableAppConfiguration.java:135` 判错是不是 `glm-4-flash` 这类小模型的通病。改 `.env` 里的 `OPENAI_VERIFY_MODEL`(以及必要的 `OPENAI_BASE_URL`)即可切换,脚本不用改。
-2. **补一条能命中 `CommandInjection.java:47/52` 的自定义规则**(`rules/custom/`,现在这个目录还不存在),否则不管 LLM 复核多准,Semgrep 这层根本没把候选交上来,LLM 也无从判断。
-3. 根据以上两项结果决定:
-   - 如果换模型后一致率明显提升 → 说明思路本身可行,模型选型是可调参数,可以开始投入真正的调用图提取(替代现在"固定行窗口"的简化版 context 提取)
-   - 如果换了更强模型还是错 → 该回头改 `prompts/verify_taint.md`,让它更明确要求"逐条对照代码证据,不要凭变量名/命名习惯猜测"
-4. 之后按 `docs/framework.md` §8 分阶段计划推进到 Phase 1(FastAPI + 前端)
-5. **规则库还没按框架 §2 的设计落地**:目前是硬编码在 `01_scan.py` 里的 Registry 短名,没有 `rules/vendor/`、`rules/custom/`、`rules/ruleset.yml` 这套目录,也没做过"摸底+精简"。第 2 点(补命令注入规则)算是这项工作的第一块,可以顺便把目录结构建起来。
+**Phase 0 核心结论:思路本身可行**(公开规则库找不全的候选,自定义规则能补;LLM 复核在证据充分时大多数情况判断正确)。唯一剩的已知问题:
+
+1. **`VulnerableAppConfiguration.java:135` 这条模型推理错误还没解决**——换个更强的模型重跑 `02_verify.py --limit`(先小批量测这一条)+ `03_eval.py`,看是不是 `glm-4-flash` 这类小模型的通病。改 `.env` 里的 `OPENAI_VERIFY_MODEL`/`OPENAI_BASE_URL` 即可切换,脚本不用改。如果换了更强模型还是错,该回头改 `prompts/verify_taint.md`,更明确要求"逐条对照代码证据,不要凭变量名/命名习惯猜测"。
+2. Phase 0 已经验证得差不多了,可以考虑往下推进到 `docs/framework.md` §8 的 Phase 1(FastAPI + 前端),或者先把规则库按 §2 设计补完整(`rules/vendor/` submodule、摸底+精简噪音规则)。两者不冲突,看用户想先要"能用的界面"还是"更扎实的地基"。
 
 ## 关键决策记录(避免以后重新踩坑)
 

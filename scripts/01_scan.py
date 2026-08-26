@@ -15,7 +15,12 @@ from pathlib import Path
 
 from common import CANDIDATES_PATH, ROOT, ensure_data_dir, sha256, write_json
 
-DEFAULT_CONFIGS = ["p/java", "p/security-audit", "p/owasp-top-ten"]
+DEFAULT_CONFIGS = [
+    "p/java",
+    "p/security-audit",
+    "p/owasp-top-ten",
+    str(ROOT / "rules" / "custom"),  # project-specific rules the public registry misses
+]
 
 
 def run_semgrep(target: Path, configs: list[str]) -> dict:
