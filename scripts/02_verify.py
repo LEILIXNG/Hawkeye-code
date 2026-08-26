@@ -13,9 +13,9 @@ endpoint (DeepSeek, Kimi, 通义千问 compatible-mode, a self-hosted gateway,
 etc.) by setting OPENAI_BASE_URL — see docs/framework.md section 5 for the
 supplier list this is meant to line up with.
 
-Requires OPENAI_API_KEY to be set in the environment. Set it yourself,
-e.g. (PowerShell):  $env:OPENAI_API_KEY = "sk-..."
-Do not hardcode the key in this file or commit it.
+Requires OPENAI_API_KEY to be set. Easiest way: copy .env.example to .env
+(gitignored, never commit it) and fill in your key there -- it's loaded
+automatically. Do not hardcode the key in this file.
 
 Usage:
     python scripts/02_verify.py --target /path/to/repo
@@ -28,18 +28,22 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from openai import OpenAI
 
 from common import (
     CANDIDATES_PATH,
     LLM_CACHE_DIR,
     PROMPTS_DIR,
+    ROOT,
     VERIFIED_PATH,
     ensure_data_dir,
     load_json,
     sha256,
     write_json,
 )
+
+load_dotenv(ROOT / ".env")  # no-op if the file doesn't exist; real env vars still take priority
 
 CONTEXT_WINDOW = 15  # lines of code above/below each location to include
 MODEL = os.environ.get("OPENAI_VERIFY_MODEL", "gpt-4o-mini")
