@@ -2,22 +2,31 @@
 Phase 0 / Step 3: compare LLM verifier output (data/verified.json) against
 the hand-labeled ground truth (eval/labels.json) and report agreement.
 
-Labels are matched to verified candidates by (file suffix, line), allowing a
-small line tolerance since the exact sink line Semgrep reports can shift by
-a line or two depending on rule/statement formatting.
+Labels are matched to verified candidates by (basename, line), not the full
+relative path. Full-path matching breaks depending on what directory was
+passed as --target when scanning (e.g. the repo root vs. its src/ subfolder
+changes whether "src/" ends up as a path prefix) -- basename + a small line
+tolerance is robust to that without caring which root was used.
 
 Usage:
     python scripts/03_eval.py
 """
+from pathlib import PureWindowsPath
+
 from common import LABELS_PATH, VERIFIED_PATH, load_json
 
 LINE_TOLERANCE = 2
 
 
+def basename(path: str) -> str:
+    return PureWindowsPath(path.replace("/", "\\")).name
+
+
 def find_match(label: dict, verified: list[dict]):
+    label_basename = basename(label["file"])
     candidates = [
         v for v in verified
-        if v["sink_file"].replace("\\", "/").endswith(label["file"])
+        if basename(v["sink_file"]) == label_basename
         and abs(v["sink_line"] - label["line"]) <= LINE_TOLERANCE
     ]
     return candidates[0] if candidates else None

@@ -13,30 +13,23 @@
 - [x] `git init` 建好本地仓库(`sast-local/`),无远程,单用户本地开发
 - [x] `docs/framework.md` 完整架构设计(去 GitHub 版,纯本地工具,LLM 供应商可配置)
 - [x] `scripts/01_scan.py` 跑通:默认规则集已改成 `p/java, p/security-audit, p/owasp-top-ten`(原来默认漏了 `p/java`,而 `p/java` 才是找出被 GitLab SAST 漏掉的 3 类 SQL 注入的关键),对 `VulnerableApp` 项目跑出 72 条原始命中 → 46 条去重后候选,`--dataflow-traces` 跨函数追踪正常工作
-- [x] `scripts/02_verify.py` 写完但**还没实际跑过**(需要 `OPENAI_API_KEY`,用户说先不运行)
-- [x] `02_verify.py` 从 Anthropic SDK 切到 **OpenAI Python SDK**(`client.chat.completions.create` + `response_format={"type":"json_object"}`),同时支持 `OPENAI_BASE_URL` 切换到其他 OpenAI 协议兼容供应商(DeepSeek/Kimi/通义千问等),`OPENAI_VERIFY_MODEL` 可覆盖默认模型(默认 `gpt-4o-mini`)
-- [x] `scripts/03_eval.py` 写完,配合 `eval/labels.json`(9 条人工核实过的标注,来自本次对话早期对 GitLab SAST 报告的逐条分析)
+- [x] `02_verify.py` 从 Anthropic SDK 切到 **OpenAI Python SDK**(`client.chat.completions.create` + `response_format={"type":"json_object"}`),支持 `OPENAI_BASE_URL`/`OPENAI_VERIFY_MODEL` 切换供应商,并通过 `python-dotenv` 从本地 `.env` 读 key(避免 `setx` 设置的系统环境变量对当前会话进程树不生效的问题)
+- [x] `scripts/03_eval.py` 写完并修好一个真 bug:原来按完整相对路径匹配候选和 `labels.json`,但 `--target` 指到 `src/` 目录会导致候选路径缺 `src/` 前缀,9 条标注全部 `NOT FOUND`;改成按文件名(basename)+ 行号匹配,和 `--target` 指到哪一层无关
 - [x] `CLAUDE.md` 开发规范
-- [x] `tests/test_scan.py`(pytest,10 条用例)覆盖 `01_scan.py` 的确定性函数:`extract_source_location`(含真实 tagged-tuple 结构、无 trace、trace 畸形三种情况)、`normalize`、`dedup`(含"CommandInjection 共享 sink 但不同 source 不能被误合并"的回归测试)、`relpath`。全部通过。
+- [x] `tests/test_scan.py`(pytest,10 条用例)覆盖 `01_scan.py` 的确定性函数,全部通过
+- [x] **跑完整个 Phase 0 闭环(46 条候选,`glm-4-flash` 模型)**:7/9 标注被扫到并复核,一致率 **6/7(86%)**。两条问题:
+  1. `VulnerableAppConfiguration.java:135`(误报测试用例)判断错了——上下文里已经有 `@Value("${spring.datasource.application.password}")` 这行证据,模型还是判成 `reachable: yes`,理由是"a user-provided password"(没对应到代码证据,像是凭变量名猜的)。说明**证据链路本身没问题,是复核模型的推理能力不够**,下一步该换模型对比,不是改上下文提取逻辑。
+  2. `CommandInjection.java:47/52` **完全没被 Semgrep 扫到**——`p/java`+`p/security-audit`+`p/owasp-top-ten` 这几个公开 Registry 规则集里没有能命中 `new ProcessBuilder(new String[]{"sh","-c","ping -c 2 "+ipAddress})` 这种模式的规则。对比最早分析的 GitLab SAST 报告,它命中的是 `find_sec_bugs.COMMAND_INJECTION-1`,那是 GitLab 自己维护的移植规则,不在公开 Registry 里。这是真实的规则覆盖缺口,不是脚本 bug。
 
 ## 未完成 / 下一步入口
 
-1. **跑 `02_verify.py`**:用户需要先自己设置 `OPENAI_API_KEY` 环境变量(不要让用户把 key 发在对话里),然后执行:
-   ```bash
-   cd scripts
-   python 02_verify.py --target "/c/Users/27297/OneDrive/Desktop/test/VulnerableApp-master/src" --limit 10
-   ```
-   建议先用 `--limit 10` 小批量跑,确认 Prompt/解析没问题,再跑全量(现在是 46 条)。
-2. **跑 `03_eval.py`** 看一致率:
-   ```bash
-   python 03_eval.py
-   ```
-   重点看 `VulnerableAppConfiguration.java:135` 这条(expected=no)有没有被 LLM 正确识别为不可达——这是之前手动分析出的关键误报案例,是验证"LLM 复核有没有用"的试金石。
-3. 根据评估结果决定:
-   - 如果一致率高(比如 ≥8/9):说明思路可行,可以开始往真正的调用图提取(替代现在"固定行窗口"的简化版 context 提取)投入
-   - 如果一致率低:先别急着加功能,回去改 `prompts/verify_taint.md`,重新跑评估,直到稳定
+1. **换个更强的模型重跑一次 `02_verify.py` + `03_eval.py`,对比一致率变化**——用来判断 `VulnerableAppConfiguration.java:135` 判错是不是 `glm-4-flash` 这类小模型的通病。改 `.env` 里的 `OPENAI_VERIFY_MODEL`(以及必要的 `OPENAI_BASE_URL`)即可切换,脚本不用改。
+2. **补一条能命中 `CommandInjection.java:47/52` 的自定义规则**(`rules/custom/`,现在这个目录还不存在),否则不管 LLM 复核多准,Semgrep 这层根本没把候选交上来,LLM 也无从判断。
+3. 根据以上两项结果决定:
+   - 如果换模型后一致率明显提升 → 说明思路本身可行,模型选型是可调参数,可以开始投入真正的调用图提取(替代现在"固定行窗口"的简化版 context 提取)
+   - 如果换了更强模型还是错 → 该回头改 `prompts/verify_taint.md`,让它更明确要求"逐条对照代码证据,不要凭变量名/命名习惯猜测"
 4. 之后按 `docs/framework.md` §8 分阶段计划推进到 Phase 1(FastAPI + 前端)
-5. **规则库还没按框架 §2 的设计落地**:目前是硬编码在 `01_scan.py` 里的 Registry 短名(`p/java,p/security-audit,p/owasp-top-ten`),没有 `rules/vendor/`、`rules/custom/`、`rules/ruleset.yml` 这套目录,也没做过"摸底+精简"(统计每条规则命中数/误报率、砍掉噪音规则)。等 Phase 0 核心验证跑完、确认思路可行之后再补,不用现在优先做。
+5. **规则库还没按框架 §2 的设计落地**:目前是硬编码在 `01_scan.py` 里的 Registry 短名,没有 `rules/vendor/`、`rules/custom/`、`rules/ruleset.yml` 这套目录,也没做过"摸底+精简"。第 2 点(补命令注入规则)算是这项工作的第一块,可以顺便把目录结构建起来。
 
 ## 关键决策记录(避免以后重新踩坑)
 
