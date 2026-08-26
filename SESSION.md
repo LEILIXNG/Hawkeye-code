@@ -42,6 +42,21 @@
 - `eval/labels.json` 种子数据直接复用第 2 步里人工核实过的 9 条标注
 - 创建 `CLAUDE.md`(开发规范:Python-only、脚本按 A~G 阶段拆分、LLM 部分不能进自动化测试只能走 eval 基准、禁止硬编码 key/提交 data 目录/静默吞掉 LLM 解析失败)
 
+**9. LLM 接口从 Anthropic 换成 OpenAI SDK,补单元测试**
+- `02_verify.py` 改用 OpenAI Python SDK + `response_format=json_object`,顺带支持 `OPENAI_BASE_URL`/`OPENAI_VERIFY_MODEL`(为了能接 DeepSeek/智谱这类国内供应商)
+- 写了 `tests/test_scan.py`(pytest,10 条),覆盖 `01_scan.py` 的确定性函数,专门补了一条"CommandInjection 共享 sink 不同 source 不能被误合并"的回归测试
+
+**10. 设置 API Key 的一波三折**
+- `setx` 设置的系统环境变量对当前会话的进程树不生效(因为进程树在设置之前就已经起了),改成用本地 `.env` 文件(python-dotenv 加载),彻底绕开这个问题
+- 用户两次把真实 key 明文贴出来:第一次是截图,第二次是**手滑把 key 填进了 `.env.example`(会被 git 追踪的模板文件)而不是 `.env`**,当场用 `git checkout` 挡住没让它进提交历史,但两次 key 都已经在对话记录里出现过,建议后续都去对应平台撤销重新生成
+- 用户用的是**智谱 GLM**(`open.bigmodel.cn`),不是 OpenAI 官方,模型是 `glm-4-flash`
+
+**11. 跑通 Phase 0 完整闭环,补了一条自定义规则**
+- 第一轮:46 候选,7/9 标注被扫到,一致率 6/7(86%)。两个真实发现:①`VulnerableAppConfiguration.java:135` 模型判错(证据齐了,`glm-4-flash` 还是把配置来源的密码当成用户输入)②`CommandInjection.java:47/52` 完全没被公开 Registry 规则集扫到(`p/java`+`p/security-audit`+`p/owasp-top-ten` 都没有对应规则,GitLab 托管的 `find_sec_bugs.COMMAND_INJECTION-1` 不在公开 Registry 里)
+- 顺手修了 `03_eval.py` 一个真 bug:按完整路径匹配候选和标注,因为 `--target` 指到 `src/` 目录导致候选路径少一层前缀,9 条全 `NOT FOUND`;改成按文件名+行号匹配
+- 补了 `rules/custom/java/command-injection.yml`(纯 pattern 规则,不是 taint 模式,按框架设计 Semgrep 只管摆候选、可达性交给 LLM 复核层),接进默认配置。第二轮:48 候选,**9/9 标注全部覆盖,一致率提升到 8/9(89%)**
+- 在这个节点设置了记忆点(`MEMORY.md` 里标了 checkpoint),等用户决定下一步是排查最后那条模型误判,还是推进到 Phase 1 前端
+
 ---
 
 ## 用户的工作习惯/偏好(供下次对话参考)
@@ -51,7 +66,9 @@
 - 敏感操作(git commit、push)习惯于先问一句确认再做
 - 明确要求过:代码里的 API Key 不要发在对话里,自己在终端设置环境变量
 - 这次要求以后所有开发都用 Python(不用 Java 写 context_builder 了,和 v1/v2 框架文档里原本设想的 JavaParser 侧车不一致,后续代码要以 `CLAUDE.md`/`MEMORY.md` 里的最新决策为准,不要照抄 `framework.md` 里"Java 侧车"那部分的具体实现语言)
+- 遇到"NOT FOUND"/异常结果不要急着归因成"上游工具漏扫了",先怀疑自己脚本的路径处理/解析逻辑——这次两次真实 bug(`--dataflow-traces` 解析、`03_eval.py` 路径匹配)都是这么揪出来的
+- 对截图/粘贴内容里可能带真实密钥这件事很敏感,一旦发现会主动要求撤销重新生成,不会因为"反正只是本地工具"就降低警惕
 
 ## 下次对话建议的开场
 
-先看 `MEMORY.md` 的"未完成/下一步入口"一节,大概率是从"用户设置好 API Key,帮忙跑 `02_verify.py` + `03_eval.py`"开始。
+直接看 `MEMORY.md` 的"未完成/下一步入口"一节(里面标了 checkpoint)。当前卡在一个决策点,不是技术阻塞:排查 `VulnerableAppConfiguration.java:135` 的模型推理错误(换模型对比),还是推进到 Phase 1 前端。哪个都不难,等用户选。

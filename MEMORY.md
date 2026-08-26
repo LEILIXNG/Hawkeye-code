@@ -23,6 +23,8 @@
 
 ## 未完成 / 下一步入口
 
+> **这是一个手动设置的记忆点**——对话在这里暂停,等用户决定下一步方向。下次直接从这一节接着做,不用重新读全文件。
+
 **Phase 0 核心结论:思路本身可行**(公开规则库找不全的候选,自定义规则能补;LLM 复核在证据充分时大多数情况判断正确)。唯一剩的已知问题:
 
 1. **`VulnerableAppConfiguration.java:135` 这条模型推理错误还没解决**——换个更强的模型重跑 `02_verify.py --limit`(先小批量测这一条)+ `03_eval.py`,看是不是 `glm-4-flash` 这类小模型的通病。改 `.env` 里的 `OPENAI_VERIFY_MODEL`/`OPENAI_BASE_URL` 即可切换,脚本不用改。如果换了更强模型还是错,该回头改 `prompts/verify_taint.md`,更明确要求"逐条对照代码证据,不要凭变量名/命名习惯猜测"。
@@ -37,6 +39,9 @@
 - 用 Semgrep Registry 的 `p/java` 直接跑,比 GitLab 托管的 `semgrep-sast` job 覆盖面更全(后者漏掉了 Blind/ErrorBased/UnionBased 三类 SQL 注入,`p/java` 全部找到了)。
 - 这个项目**只支持本地 zip 上传,不接 GitHub OAuth**,也**不部署公网服务器**——是有意简化后的决定,不要在没讨论的情况下加回来。
 - LLM 供应商要做成前端可配置(Claude/OpenAI 兼容/Ollama),不要写死接 Anthropic。
+- API Key 用本地 `.env` 文件(python-dotenv 加载),不要指望 `setx` 设的系统环境变量——`setx` 只对"之后新启动的进程"生效,这个开发会话所在的进程树是设置之前就起的,读不到。
+- **`.env.example` 是模板,不能填真实值**——之前用户手滑直接改了 `.env.example`(会被 git 追踪)而不是 `.env`,虽然当场用 `git checkout` 挡住了没让它进提交历史,但那个 key 已经在对话记录里出现过,后续都建议换新 key。以后看到疑似真实 key 出现在被追踪的文件里,第一反应是检查 `git status`/`git log` 有没有真的提交进去。
+- Semgrep 自定义规则不用非得写成 `mode: taint` 才有用——像 `rules/custom/java/command-injection.yml` 这种纯 pattern 规则,只要能把候选摆出来就够了,可达性判断交给 LLM 复核层,不需要 Semgrep 自己证明数据流全程可达。
 
 ## 参考文件位置
 
