@@ -1,32 +1,30 @@
-"""Shared paths and small helpers used by all Phase 0 scripts."""
-import hashlib
-import json
+"""Shared paths and small helpers used by all Phase 0 scripts.
+
+The actual implementation now lives in scanner/common.py so apps/api can
+import it too (scripts/ is only importable via the importlib file-path
+trick used in tests/conftest.py). This module just re-exports it so the
+existing `from common import ...` calls inside the numbered scripts keep
+working unchanged.
+"""
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
-CANDIDATES_PATH = DATA_DIR / "candidates.json"
-VERIFIED_PATH = DATA_DIR / "verified.json"
-LLM_CACHE_DIR = DATA_DIR / "llm_cache"
-LABELS_PATH = ROOT / "eval" / "labels.json"
-PROMPTS_DIR = ROOT / "prompts"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-def ensure_data_dir() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    LLM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def load_json(path: Path):
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def write_json(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+from scanner.common import (  # noqa: F401
+    CANDIDATES_PATH,
+    DATA_DIR,
+    DB_PATH,
+    LABELS_PATH,
+    LLM_CACHE_DIR,
+    PROMPTS_DIR,
+    REPORTS_DIR,
+    ROOT,
+    UPLOADS_DIR,
+    VERIFIED_PATH,
+    WORKSPACES_DIR,
+    ensure_data_dir,
+    load_json,
+    sha256,
+    write_json,
+)
