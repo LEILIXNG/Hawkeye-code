@@ -17,6 +17,10 @@ data/*
 .env
 *.env.local
 
+# Personal working notes -- kept locally only, not published
+MEMORY.md
+SESSION.md
+
 # OS
 .DS_Store
 Thumbs.db
