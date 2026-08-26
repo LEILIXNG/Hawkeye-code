@@ -3,17 +3,24 @@ Phase 0 / Step 2: minimal LLM verification pass over the candidates produced
 by 01_scan.py.
 
 This is deliberately the "cheap" version of the context extractor described
-in docs/framework.md section 3 — instead of a real call graph (JavaParser),
-it just grabs a fixed line window around the source and sink locations. Good
-enough to test whether the verify step itself is useful before investing in
-proper cross-function slicing.
+in docs/framework.md section 3 — instead of a real call graph, it just grabs
+a fixed line window around the source and sink locations. Good enough to
+test whether the verify step itself is useful before investing in proper
+cross-function slicing.
 
-Requires ANTHROPIC_API_KEY to be set in the environment. Set it yourself,
-e.g. (PowerShell):  $env:ANTHROPIC_API_KEY = "sk-ant-..."
+Uses the OpenAI Python SDK. This also works against any OpenAI-compatible
+endpoint (DeepSeek, Kimi, 通义千问 compatible-mode, a self-hosted gateway,
+etc.) by setting OPENAI_BASE_URL — see docs/framework.md section 5 for the
+supplier list this is meant to line up with.
+
+Requires OPENAI_API_KEY to be set in the environment. Set it yourself,
+e.g. (PowerShell):  $env:OPENAI_API_KEY = "sk-..."
 Do not hardcode the key in this file or commit it.
 
 Usage:
     python scripts/02_verify.py --target /path/to/repo
+    OPENAI_BASE_URL=https://api.deepseek.com/v1 OPENAI_VERIFY_MODEL=deepseek-chat \
+        python scripts/02_verify.py --target /path/to/repo
 """
 import argparse
 import json
@@ -21,7 +28,7 @@ import os
 import sys
 from pathlib import Path
 
-import anthropic
+from openai import OpenAI
 
 from common import (
     CANDIDATES_PATH,
@@ -35,7 +42,7 @@ from common import (
 )
 
 CONTEXT_WINDOW = 15  # lines of code above/below each location to include
-MODEL = os.environ.get("CLAUDE_VERIFY_MODEL", "claude-haiku-4-5-20251001")
+MODEL = os.environ.get("OPENAI_VERIFY_MODEL", "gpt-4o-mini")
 
 
 def read_window(target: Path, rel_path: str, line: int, window: int) -> str:
@@ -83,19 +90,20 @@ def parse_llm_json(raw_text: str) -> dict:
     return json.loads(text.strip())
 
 
-def call_llm(client: anthropic.Anthropic, prompt: str) -> dict:
+def call_llm(client: OpenAI, prompt: str) -> dict:
     cache_key = sha256(prompt)
     cache_file = LLM_CACHE_DIR / f"{cache_key}.json"
     if cache_file.exists():
         return load_json(cache_file)
 
     for attempt in range(2):
-        resp = client.messages.create(
+        resp = client.chat.completions.create(
             model=MODEL,
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
         )
-        raw_text = resp.content[0].text
+        raw_text = resp.choices[0].message.content
         try:
             result = parse_llm_json(raw_text)
             write_json(cache_file, result)
@@ -122,8 +130,8 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Only verify the first N candidates (for testing)")
     args = parser.parse_args()
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ERROR: ANTHROPIC_API_KEY is not set in the environment.", file=sys.stderr)
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("ERROR: OPENAI_API_KEY is not set in the environment.", file=sys.stderr)
         raise SystemExit(1)
 
     ensure_data_dir()
@@ -133,7 +141,8 @@ def main():
         candidates = candidates[: args.limit]
 
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
-    client = anthropic.Anthropic()
+    base_url = os.environ.get("OPENAI_BASE_URL")  # None -> official OpenAI endpoint
+    client = OpenAI(base_url=base_url) if base_url else OpenAI()
 
     verified = []
     for i, candidate in enumerate(candidates, 1):

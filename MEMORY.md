@@ -13,13 +13,14 @@
 - [x] `git init` 建好本地仓库(`sast-local/`),无远程,单用户本地开发
 - [x] `docs/framework.md` 完整架构设计(去 GitHub 版,纯本地工具,LLM 供应商可配置)
 - [x] `scripts/01_scan.py` 跑通:对 `VulnerableApp` 项目用 `p/java` 规则集扫描,60 条原始命中 → 37 条去重后候选,`--dataflow-traces` 跨函数追踪正常工作
-- [x] `scripts/02_verify.py` 写完但**还没实际跑过**(需要 `ANTHROPIC_API_KEY`,用户说先不运行)
+- [x] `scripts/02_verify.py` 写完但**还没实际跑过**(需要 `OPENAI_API_KEY`,用户说先不运行)
+- [x] `02_verify.py` 从 Anthropic SDK 切到 **OpenAI Python SDK**(`client.chat.completions.create` + `response_format={"type":"json_object"}`),同时支持 `OPENAI_BASE_URL` 切换到其他 OpenAI 协议兼容供应商(DeepSeek/Kimi/通义千问等),`OPENAI_VERIFY_MODEL` 可覆盖默认模型(默认 `gpt-4o-mini`)
 - [x] `scripts/03_eval.py` 写完,配合 `eval/labels.json`(9 条人工核实过的标注,来自本次对话早期对 GitLab SAST 报告的逐条分析)
 - [x] `CLAUDE.md` 开发规范
 
 ## 未完成 / 下一步入口
 
-1. **跑 `02_verify.py`**:用户需要先自己设置 `ANTHROPIC_API_KEY` 环境变量(不要让用户把 key 发在对话里),然后执行:
+1. **跑 `02_verify.py`**:用户需要先自己设置 `OPENAI_API_KEY` 环境变量(不要让用户把 key 发在对话里),然后执行:
    ```bash
    cd scripts
    python 02_verify.py --target "/c/Users/27297/OneDrive/Desktop/test/VulnerableApp-master/src" --limit 10

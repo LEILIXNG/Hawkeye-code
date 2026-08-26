@@ -33,7 +33,7 @@
 
 ## 4. 禁止事项
 
-- **禁止把任何 API Key 写进代码、配置文件、commit 里**。`ANTHROPIC_API_KEY` 等必须从环境变量读取,`.env` 文件(如果用)必须在 `.gitignore` 里。发现代码里出现疑似 key 的字符串,先停下来问,不要直接删掉continue。
+- **禁止把任何 API Key 写进代码、配置文件、commit 里**。`OPENAI_API_KEY`(当前脚本用的)等必须从环境变量读取,`.env` 文件(如果用)必须在 `.gitignore` 里。发现代码里出现疑似 key 的字符串,先停下来问,不要直接删掉continue。
 - **禁止提交 `data/` 目录下的实际内容**(候选结果、上传的 zip、报告、缓存),这些是运行产物不是源码,`.gitignore` 已经处理,不要用 `git add -f` 强行加进去。
 - **禁止在扫描/摄取阶段执行目标代码库里的任何脚本或构建命令**(比如自动跑目标项目的 `build.gradle`/`package.json` 脚本),摄取到的代码永远当作不可信数据,只做静态读取和解析。
 - **禁止跳过 JSON Schema 校验直接信任 LLM 输出**——`verify.py` 里解析 LLM 返回值必须走 `parse_llm_json` 这类显式校验路径,解析失败要显式标记 `verifier_failed`,不能静默吞掉或者硬凑一个默认值当结果用。
