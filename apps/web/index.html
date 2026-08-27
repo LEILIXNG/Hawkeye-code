@@ -41,6 +41,8 @@
 
   <section>
     <h2 style="margin-top:0">LLM 供应商设置</h2>
+    <label>配置名称</label>
+    <input id="config-name" placeholder="例如 我的 GLM / 备用 DeepSeek">
     <label>模板</label>
     <select id="provider-template">
       <option value="">自定义</option>
@@ -57,9 +59,15 @@
     <input id="verify-model" placeholder="例如 gpt-4o-mini / glm-4-flash / deepseek-chat">
     <div class="row">
       <button id="test-btn">测试连接</button>
-      <button id="save-btn">保存</button>
+      <button id="save-btn">保存为新配置</button>
     </div>
     <p id="settings-msg"></p>
+
+    <h3 style="font-size:0.95rem; margin-top:1.4rem;">已保存的配置</h3>
+    <table id="config-table">
+      <thead><tr><th>名称</th><th>Base URL</th><th>模型</th><th>状态</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
   </section>
 
 <script>
@@ -67,8 +75,12 @@ const $ = (id) => document.getElementById(id);
 
 async function api(path, options) {
   const resp = await fetch(path, options);
+  const text = await resp.text();
   const isJson = resp.headers.get("content-type")?.includes("application/json");
-  const body = isJson ? await resp.json() : null;
+  // A 204 (e.g. DELETE) still carries a JSON content-type header but an
+  // empty body -- JSON.parse("") throws, so only parse when there's
+  // actually something to parse.
+  const body = isJson && text ? JSON.parse(text) : null;
   if (!resp.ok) throw new Error(body?.detail || resp.statusText);
   return body;
 }
@@ -106,13 +118,15 @@ $("save-btn").addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        name: $("config-name").value || "default",
         base_url: $("base-url").value || null,
         api_key: $("api-key").value,
         verify_model: $("verify-model").value,
       }),
     });
-    msg.textContent = "已保存";
+    msg.textContent = "已保存并启用";
     msg.className = "ok";
+    loadConfigList();
   } catch (e) {
     msg.textContent = `保存失败: ${e.message}`;
     msg.className = "err";
@@ -126,6 +140,54 @@ async function loadActiveConfig() {
     $("base-url").value = cfg.base_url || "";
     $("verify-model").value = cfg.verify_model || "";
   } catch (e) { /* ignore */ }
+}
+
+async function loadConfigList() {
+  const msg = $("settings-msg");
+  const tbody = document.querySelector("#config-table tbody");
+  tbody.innerHTML = "";
+  const configs = await api("/settings/llm/list");
+  for (const cfg of configs) {
+    const tr = document.createElement("tr");
+    const statusCell = cfg.is_active
+      ? '<span class="ok">使用中</span>'
+      : `<button data-activate="${cfg.id}">启用</button>`;
+    tr.innerHTML = `
+      <td>${cfg.name}</td>
+      <td>${cfg.base_url || "(官方 OpenAI)"}</td>
+      <td>${cfg.verify_model}</td>
+      <td>${statusCell}</td>
+      <td><button data-delete="${cfg.id}">删除</button></td>`;
+    tbody.appendChild(tr);
+  }
+
+  tbody.querySelectorAll("[data-activate]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/settings/llm/${btn.dataset.activate}/activate`, { method: "POST" });
+        msg.textContent = "已切换";
+        msg.className = "ok";
+        loadActiveConfig();
+        loadConfigList();
+      } catch (e) {
+        msg.textContent = `切换失败: ${e.message}`;
+        msg.className = "err";
+      }
+    });
+  });
+
+  tbody.querySelectorAll("[data-delete]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await api(`/settings/llm/${btn.dataset.delete}`, { method: "DELETE" });
+        loadActiveConfig();
+        loadConfigList();
+      } catch (e) {
+        msg.textContent = `删除失败: ${e.message}`;
+        msg.className = "err";
+      }
+    });
+  });
 }
 
 $("upload-btn").addEventListener("click", async () => {
@@ -193,6 +255,7 @@ async function loadHistory() {
 }
 
 loadActiveConfig();
+loadConfigList();
 loadHistory();
 </script>
 </body>

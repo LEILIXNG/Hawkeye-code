@@ -35,6 +35,12 @@ def get_active_config(db: Session = Depends(get_db)):
     return _to_out(row) if row else None
 
 
+@router.get("/list", response_model=list[schemas.LLMConfigOut])
+def list_configs(db: Session = Depends(get_db)):
+    rows = db.query(models.LLMConfig).order_by(models.LLMConfig.created_at.desc()).all()
+    return [_to_out(row) for row in rows]
+
+
 @router.post("", response_model=schemas.LLMConfigOut)
 def save_config(payload: schemas.LLMConfigIn, db: Session = Depends(get_db)):
     # Single-user tool: only one config is ever "active" at a time.
@@ -53,6 +59,38 @@ def save_config(payload: schemas.LLMConfigIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(row)
     return _to_out(row)
+
+
+@router.post("/{config_id}/activate", response_model=schemas.LLMConfigOut)
+def activate_config(config_id: str, db: Session = Depends(get_db)):
+    row = db.get(models.LLMConfig, config_id)
+    if row is None:
+        raise HTTPException(404, "saved config not found")
+    db.query(models.LLMConfig).update({"is_active": False})
+    row.is_active = True
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+
+@router.delete("/{config_id}", status_code=204)
+def delete_config(config_id: str, db: Session = Depends(get_db)):
+    row = db.get(models.LLMConfig, config_id)
+    if row is None:
+        raise HTTPException(404, "saved config not found")
+    was_active = row.is_active
+    db.delete(row)
+    db.flush()
+
+    if was_active:
+        # Don't leave scans with no active config just because the user
+        # deleted the one they happened to be using -- fall back to
+        # whichever other saved config was used most recently, if any.
+        fallback = db.query(models.LLMConfig).order_by(models.LLMConfig.created_at.desc()).first()
+        if fallback is not None:
+            fallback.is_active = True
+
+    db.commit()
 
 
 @router.post("/test", response_model=schemas.LLMTestResult)

@@ -126,3 +126,62 @@ class TestSettings:
         resp = client.post("/settings/llm/test", json={"verify_model": "gpt-4o-mini"})
         assert resp.status_code == 200
         assert resp.json()["success"] is False
+
+    def test_saving_a_second_config_keeps_both_but_only_activates_the_new_one(self, client):
+        client.post("/settings/llm", json={
+            "name": "glm", "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key": "sk-glm", "verify_model": "glm-4-flash",
+        })
+        second = client.post("/settings/llm", json={
+            "name": "deepseek", "base_url": "https://api.deepseek.com/v1",
+            "api_key": "sk-ds", "verify_model": "deepseek-chat",
+        }).json()
+
+        configs = client.get("/settings/llm/list").json()
+        assert {c["name"] for c in configs} == {"glm", "deepseek"}
+        by_name = {c["name"]: c for c in configs}
+        assert by_name["glm"]["is_active"] is False
+        assert by_name["deepseek"]["is_active"] is True
+        assert client.get("/settings/llm").json()["id"] == second["id"]
+
+    def test_activate_switches_which_config_is_active(self, client):
+        first = client.post("/settings/llm", json={
+            "name": "glm", "verify_model": "glm-4-flash",
+        }).json()
+        client.post("/settings/llm", json={"name": "deepseek", "verify_model": "deepseek-chat"})
+
+        resp = client.post(f"/settings/llm/{first['id']}/activate")
+        assert resp.status_code == 200
+        assert resp.json()["is_active"] is True
+        assert client.get("/settings/llm").json()["id"] == first["id"]
+
+    def test_activate_missing_config_returns_404(self, client):
+        resp = client.post("/settings/llm/does-not-exist/activate")
+        assert resp.status_code == 404
+
+    def test_delete_config(self, client):
+        cfg = client.post("/settings/llm", json={"name": "glm", "verify_model": "glm-4-flash"}).json()
+        resp = client.delete(f"/settings/llm/{cfg['id']}")
+        assert resp.status_code == 204
+        assert client.get("/settings/llm/list").json() == []
+
+    def test_delete_missing_config_returns_404(self, client):
+        resp = client.delete("/settings/llm/does-not-exist")
+        assert resp.status_code == 404
+
+    def test_deleting_the_active_config_falls_back_to_another_saved_one(self, client):
+        first = client.post("/settings/llm", json={"name": "glm", "verify_model": "glm-4-flash"}).json()
+        second = client.post("/settings/llm", json={"name": "deepseek", "verify_model": "deepseek-chat"}).json()
+        assert second["is_active"] is True  # the one that gets deleted below
+
+        resp = client.delete(f"/settings/llm/{second['id']}")
+        assert resp.status_code == 204
+
+        active = client.get("/settings/llm").json()
+        assert active["id"] == first["id"]
+        assert active["is_active"] is True
+
+    def test_deleting_the_only_config_leaves_none_active(self, client):
+        cfg = client.post("/settings/llm", json={"name": "glm", "verify_model": "glm-4-flash"}).json()
+        client.delete(f"/settings/llm/{cfg['id']}")
+        assert client.get("/settings/llm").json() is None
