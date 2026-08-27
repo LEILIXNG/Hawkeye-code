@@ -20,6 +20,7 @@ data/*
 # Personal working notes -- kept locally only, not published
 MEMORY.md
 SESSION.md
+AGENTS.md
 
 # OS
 .DS_Store
