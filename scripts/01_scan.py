@@ -13,15 +13,10 @@ Usage:
 import argparse
 from pathlib import Path
 
-from common import CANDIDATES_PATH, ROOT, ensure_data_dir, write_json
+from common import CANDIDATES_PATH, ensure_data_dir, load_default_configs, write_json
 from scanner.core import dedup, extract_source_location, normalize, relpath, run_semgrep  # noqa: F401
 
-DEFAULT_CONFIGS = [
-    "p/java",
-    "p/security-audit",
-    "p/owasp-top-ten",
-    str(ROOT / "rules" / "custom"),  # project-specific rules the public registry misses
-]
+DEFAULT_CONFIGS = load_default_configs()
 
 
 def main():

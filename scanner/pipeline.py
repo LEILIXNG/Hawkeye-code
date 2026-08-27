@@ -8,18 +8,13 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from scanner.common import PROMPTS_DIR, ROOT, ensure_data_dir
+from scanner.common import PROMPTS_DIR, ensure_data_dir, load_default_configs
 from scanner.core import build_context, build_prompt, dedup, normalize, run_semgrep
 from scanner.ingest import safe_extract
 from scanner.render import render
 from scanner.verify import call_llm
 
-DEFAULT_CONFIGS = [
-    "p/java",
-    "p/security-audit",
-    "p/owasp-top-ten",
-    str(ROOT / "rules" / "custom"),
-]
+DEFAULT_CONFIGS = load_default_configs()
 
 
 class PipelineError(Exception):

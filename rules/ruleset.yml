@@ -1,0 +1,27 @@
+# Default Semgrep rule set for scanner/pipeline.py and scripts/01_scan.py.
+#
+# Each entry is a path (relative to the repo root) passed to `semgrep
+# --config`. Paths under rules/vendor/semgrep-rules/ come from the pinned
+# git submodule (see rules/vendor/semgrep-rules, locked to one commit) --
+# scanning offline and reproducibly instead of the network-fetched
+# `p/java` / `p/security-audit` / `p/owasp-top-ten` registry packs, whose
+# contents can silently change upstream between scans.
+#
+# Selection: every java/**/security/ directory in the vendored repo, i.e.
+# the same rules the registry packs above draw from for Java, minus two
+# categories judged out of scope for this tool (server-side Java/Spring
+# web apps -- see docs/framework.md):
+#   - java/android/security    -- mobile-only rules (exported activities, etc.)
+#   - java/aws-lambda/security -- serverless-specific taint rules
+# Revisit this trim if the tool ever needs to scan Android or Lambda code.
+configs:
+  - rules/vendor/semgrep-rules/java/lang/security
+  - rules/vendor/semgrep-rules/java/servlets/security
+  - rules/vendor/semgrep-rules/java/spring/security
+  - rules/vendor/semgrep-rules/java/jax-rs/security
+  - rules/vendor/semgrep-rules/java/jboss/security
+  - rules/vendor/semgrep-rules/java/rmi/security
+  - rules/vendor/semgrep-rules/java/java-jwt/security
+  - rules/vendor/semgrep-rules/java/jjwt/security
+  - rules/vendor/semgrep-rules/java/mongodb/security
+  - rules/custom
