@@ -14,7 +14,7 @@ class OpenAICompatibleProvider(LLMProvider):
     def chat(self, messages: list[dict], model: str, response_format: str | None = None) -> str:
         resp = self.client.chat.completions.create(
             model=model,
-            max_tokens=512,
+            max_tokens=4096,
             messages=messages,
             response_format={"type": "json_object"} if response_format == "json" else None,
         )
