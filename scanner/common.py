@@ -42,9 +42,18 @@ def write_json(path: Path, data) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def _load_ruleset() -> dict:
+    return yaml.safe_load(RULESET_PATH.read_text(encoding="utf-8"))
+
+
 def load_default_configs() -> list[str]:
     """Reads rules/ruleset.yml and resolves each entry to an absolute path,
     so callers can pass the result straight to `semgrep --config` regardless
     of their own current working directory."""
-    ruleset = yaml.safe_load(RULESET_PATH.read_text(encoding="utf-8"))
-    return [str(ROOT / c) for c in ruleset["configs"]]
+    return [str(ROOT / c) for c in _load_ruleset()["configs"]]
+
+
+def load_excluded_rules() -> list[str]:
+    """Rule ids from ruleset.yml's `exclude_rules`, for `semgrep
+    --exclude-rule`. Absent or empty means nothing is excluded."""
+    return list(_load_ruleset().get("exclude_rules") or [])

@@ -31,19 +31,29 @@ def _sort_key(item: dict):
     )
 
 
+VERDICT_SUMMARY_KEYS = {
+    "yes": "reachable",
+    "no": "not_reachable",
+    "uncertain": "uncertain",
+    "failed": "verifier_failed",
+}
+
+
+def verdict_of(item: dict) -> str:
+    """Which bucket one verified candidate falls into: yes / no / uncertain
+    / failed. A verifier failure is recorded in `reasoning` rather than in
+    `reachable`, so it has to be checked first."""
+    finding = item.get("finding") or {}
+    if "verifier_failed" in (finding.get("reasoning") or ""):
+        return "failed"
+    reachable = finding.get("reachable")
+    return reachable if reachable in ("yes", "no") else "uncertain"
+
+
 def build_summary(verified: list[dict]) -> dict:
     summary = {"total": len(verified), "reachable": 0, "uncertain": 0, "not_reachable": 0, "verifier_failed": 0}
     for item in verified:
-        finding = item.get("finding") or {}
-        reachable = finding.get("reachable")
-        if "verifier_failed" in (finding.get("reasoning") or ""):
-            summary["verifier_failed"] += 1
-        elif reachable == "yes":
-            summary["reachable"] += 1
-        elif reachable == "no":
-            summary["not_reachable"] += 1
-        else:
-            summary["uncertain"] += 1
+        summary[VERDICT_SUMMARY_KEYS[verdict_of(item)]] += 1
     return summary
 
 
@@ -79,13 +89,8 @@ def _facet_counts(verified: list[dict], key_fn) -> list[tuple[str, int]]:
 
 def _card_html(item: dict) -> str:
     finding = item.get("finding") or {}
-    reachable = finding.get("reachable", "uncertain")
-    is_failed = "verifier_failed" in (finding.get("reasoning") or "")
-    filter_bucket = "failed" if is_failed else reachable
-    badge_class = {"yes": "badge-yes", "no": "badge-no"}.get(reachable, "badge-uncertain")
-    badge_key = "failed" if is_failed else (reachable if reachable in ("yes", "no") else "uncertain")
-    if is_failed:
-        badge_class = "badge-failed"
+    badge_key = filter_bucket = verdict_of(item)
+    badge_class = {"yes": "badge-yes", "no": "badge-no", "failed": "badge-failed"}.get(badge_key, "badge-uncertain")
 
     rule_ids = ", ".join(item.get("rule_ids", [item.get("rule_id", "")]))
     message = " / ".join(item.get("messages", [item.get("message", "")]))

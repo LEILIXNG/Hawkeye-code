@@ -14,6 +14,27 @@
 #   - java/android/security    -- mobile-only rules (exported activities, etc.)
 #   - java/aws-lambda/security -- serverless-specific taint rules
 # Revisit this trim if the tool ever needs to scan Android or Lambda code.
+
+# Rules that fire often enough to cost real money in LLM verification but
+# have never produced a true finding on this project's targets. Each id is
+# passed to semgrep as --exclude-rule, so the rule never runs at all --
+# nothing downstream sees it, and it costs no verify call.
+#
+# Use the id exactly as it appears in scan output: because the configs
+# below are local directories, semgrep derives each rule's id from its path
+# (rules.vendor.semgrep-rules.java.spring.security.unrestricted-request-
+# mapping), not from the `id:` written inside the YAML. --exclude-rule
+# matches that string literally, so a wrong or shortened id silently
+# excludes nothing.
+#
+# Only add an id here with evidence: run `python scripts/rule_stats.py`
+# over the accumulated reports and quote the numbers in the commit message.
+# Note that verdicts come from the LLM verify stage, so "all of this rule's
+# findings came back not-reachable" is evidence, not proof -- prefer
+# excluding rules whose matches are structurally irrelevant to this tool's
+# scope (see docs/framework.md) over ones the model merely disagreed with.
+exclude_rules: []
+
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
   - rules/vendor/semgrep-rules/java/servlets/security

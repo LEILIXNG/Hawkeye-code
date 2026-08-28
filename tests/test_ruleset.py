@@ -18,7 +18,7 @@ import subprocess
 import pytest
 import yaml
 
-from scanner.common import ROOT, RULESET_PATH, load_default_configs
+from scanner.common import ROOT, RULESET_PATH, load_default_configs, load_excluded_rules
 
 CUSTOM_RULES_DIR = ROOT / "rules" / "custom"
 REQUIRED_RULE_FIELDS = ("id", "languages", "severity", "message")
@@ -49,6 +49,19 @@ class TestRulesetFile:
         for entry in ruleset["configs"]:
             assert not entry.startswith(("/", "\\")) and ":" not in entry, entry
             assert ".." not in entry.split("/"), entry
+
+    def test_exclude_rules_is_a_list_of_strings(self):
+        ruleset = yaml.safe_load(RULESET_PATH.read_text(encoding="utf-8"))
+        excluded = ruleset.get("exclude_rules") or []
+        assert isinstance(excluded, list)
+        assert all(isinstance(r, str) and r.strip() for r in excluded)
+        assert len(set(excluded)) == len(excluded), "duplicate ids in exclude_rules"
+
+    def test_excluded_rules_are_loaded_verbatim(self):
+        """`--exclude-rule` matches on the exact id, so anything that looks
+        like a path or a glob here would silently exclude nothing."""
+        for rule_id in load_excluded_rules():
+            assert "/" not in rule_id and "*" not in rule_id, rule_id
 
     def test_every_config_path_exists(self):
         missing = [c for c in load_default_configs() if not (ROOT / c).exists()]

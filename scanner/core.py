@@ -15,7 +15,7 @@ from pathlib import Path
 from scanner.common import sha256
 
 
-def run_semgrep(target: Path, configs: list[str]) -> dict:
+def run_semgrep(target: Path, configs: list[str], exclude_rules: list[str] | None = None) -> dict:
     # --no-git-ignore: semgrep's default is to enumerate files via `git
     # ls-files` when the target sits inside a git working tree, which
     # silently skips anything not tracked by git. That's exactly what
@@ -25,6 +25,8 @@ def run_semgrep(target: Path, configs: list[str]) -> dict:
     cmd = ["semgrep", "--json", "--dataflow-traces", "--metrics=off", "--no-git-ignore"]
     for c in configs:
         cmd += ["--config", c]
+    for rule_id in exclude_rules or []:
+        cmd += ["--exclude-rule", rule_id]
     cmd.append(str(target))
 
     print(f"[scan] running: {' '.join(cmd)}", file=sys.stderr)
