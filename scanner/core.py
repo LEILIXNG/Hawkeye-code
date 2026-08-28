@@ -8,11 +8,69 @@ now just re-export these functions so they keep working as standalone CLIs
 and the existing tests (which load them by file path) keep passing.
 """
 import json
+import os
 import subprocess
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 
 from scanner.common import sha256
+
+# Windows refuses to open a path of 260 characters or more unless the
+# process opts into long paths, and semgrep does not: it reports such files
+# as neither scanned, skipped nor errored -- they simply are not there.
+# Measured on the VulnerableApp zip extracted under a long temp path: the
+# longest path semgrep scanned was 257 characters, the shortest it silently
+# dropped was 260, and the scan came back 29 candidates instead of 44 with
+# all ten SQL injection findings among the missing. A security scanner that
+# quietly stops looking at a third of the code is worse than one that
+# fails, so this is checked before the scan rather than hoped about.
+WINDOWS_MAX_PATH = 260
+
+# Directory names semgrep 1.173.0 ignores without being asked (measured, see
+# rules/ruleset.yml's exclude_paths note). Files under these are already out
+# of the scan, so a too-long path there costs nothing and must not fail the
+# run -- an uploaded project's build/ output is the common case. semgrep has
+# an --x-ls flag that would answer this exactly, but it is documented as
+# internal and subject to change, so this mirrors the measurement instead.
+SEMGREP_DEFAULT_IGNORED_DIRS = frozenset(
+    {"build", "dist", "node_modules", "vendor", "test", "tests", ".venv"}
+)
+
+
+def long_paths(
+    target: Path,
+    exclude_paths: list[str] | None = None,
+    limit: int = WINDOWS_MAX_PATH,
+) -> list[Path]:
+    """Files under `target` that Windows cannot open by path, ignoring the
+    ones no scan would have looked at anyway.
+
+    Always empty off Windows, where the limit does not apply.
+    """
+    if os.name != "nt":
+        return []
+
+    globs = [g.removeprefix("**/") for g in (exclude_paths or [])]
+    found = []
+    for path in target.rglob("*"):
+        if not path.is_file() or len(str(path)) < limit:
+            continue
+        parts = path.relative_to(target).parts
+        if SEMGREP_DEFAULT_IGNORED_DIRS.intersection(parts[:-1]):
+            continue
+        # Matches how semgrep reads these: a bare name is a directory at any
+        # depth, a multi-segment glob is a run of consecutive directories,
+        # and a *.ext glob is a filename pattern.
+        dirs = "/" + "/".join(parts[:-1]) + "/"
+        if any(
+            fnmatch(path.name, g) if g.startswith("*.")
+            else (f"/{g}/" in dirs if "/" in g else g in parts[:-1])
+            for g in globs
+        ):
+            continue
+        found.append(path)
+    return sorted(found)
 
 
 def run_semgrep(
@@ -37,6 +95,16 @@ def run_semgrep(
     for pattern in exclude_paths or []:
         cmd += ["--exclude", pattern]
     cmd.append(str(target))
+
+    unreachable = long_paths(target, exclude_paths)
+    if unreachable:
+        longest = max(unreachable, key=lambda p: len(str(p)))
+        raise SystemExit(
+            f"{len(unreachable)} file(s) under {target} exceed Windows' {WINDOWS_MAX_PATH}-character "
+            f"path limit and would be skipped without any warning from semgrep, making this scan "
+            f"silently incomplete. Longest ({len(str(longest))} chars): {longest}. "
+            f"Move the target (or this tool) somewhere with a shorter path and scan again."
+        )
 
     print(f"[scan] running: {' '.join(cmd)}", file=sys.stderr)
     proc = subprocess.run(cmd, capture_output=True, text=True)

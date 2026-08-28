@@ -5,7 +5,12 @@ shaped like real Semgrep --dataflow-traces JSON output (captured from an
 actual run against VulnerableApp, see MEMORY.md's note on the tagged-tuple
 taint_source format).
 """
+import os
 from pathlib import Path
+
+import pytest
+
+from scanner.core import long_paths, run_semgrep
 
 
 def make_result(check_id="rule.id", path="C:\\repo\\A.java", start_line=51,
@@ -115,3 +120,77 @@ class TestRelpath:
     def test_path_outside_target_falls_back_to_original(self, scan_module):
         rel = scan_module.relpath(Path("C:/repo"), "D:/elsewhere/Main.java")
         assert rel == "D:/elsewhere/Main.java"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the MAX_PATH limit only exists on Windows")
+class TestLongPaths:
+    """semgrep does not report files it cannot open past Windows' MAX_PATH --
+    they show up as neither scanned, skipped nor errored -- so this is the
+    only thing standing between a too-deep workspace and a scan that quietly
+    covers a third of the code. `limit` is injected here so the cases stay
+    readable instead of building 260-character fixtures.
+    """
+
+    def plant(self, root: Path, rel: str):
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x", encoding="utf-8")
+        return target
+
+    def test_flags_a_source_file_past_the_limit(self, tmp_path):
+        deep = self.plant(tmp_path, "src/main/java/Deep.java")
+        assert long_paths(tmp_path, limit=len(str(deep))) == [deep]
+
+    def test_ignores_files_semgrep_would_not_have_scanned_anyway(self, tmp_path):
+        """An uploaded project's build output is over the limit constantly
+        and costs nothing -- failing the scan for it would be a false alarm."""
+        planted = self.plant(tmp_path, "build/classes/Deep.class")
+        assert long_paths(tmp_path, limit=len(str(planted))) == []
+
+    def test_ignores_files_under_a_configured_exclude_path(self, tmp_path):
+        planted = self.plant(tmp_path, "target/generated/Deep.java")
+        limit = len(str(planted))
+        assert long_paths(tmp_path, ["target"], limit=limit) == []
+        assert long_paths(tmp_path, [], limit=limit) == [planted]
+
+    def test_honours_an_unanchored_exclude_glob(self, tmp_path):
+        planted = self.plant(tmp_path, "moduleA/src/it/Deep.java")
+        assert long_paths(tmp_path, ["**/src/it"], limit=len(str(planted))) == []
+
+    def test_honours_a_file_glob(self, tmp_path):
+        planted = self.plant(tmp_path, "web/app.min.js")
+        assert long_paths(tmp_path, ["*.min.js"], limit=len(str(planted))) == []
+
+    def test_stays_quiet_when_everything_fits(self, tmp_path):
+        self.plant(tmp_path, "src/A.java")
+        assert long_paths(tmp_path, limit=4096) == []
+
+
+class TestRunSemgrepRefusesAnIncompleteScan:
+    """The guard has to abort *before* semgrep runs. Reporting 29 findings
+    where there are 44, with no error anywhere, is the failure mode this
+    whole check exists for -- so monkeypatch the detection and assert the
+    scan stops rather than trusting that the wiring is still connected.
+    """
+
+    def test_raises_instead_of_scanning(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("scanner.core.long_paths", lambda *a, **k: [tmp_path / "TooDeep.java"])
+
+        def fail_if_called(*a, **k):
+            raise AssertionError("semgrep was launched despite unreadable files")
+
+        monkeypatch.setattr("scanner.core.subprocess.run", fail_if_called)
+
+        with pytest.raises(SystemExit, match="silently incomplete"):
+            run_semgrep(tmp_path, ["rules/custom"])
+
+    def test_runs_normally_when_nothing_is_out_of_reach(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("scanner.core.long_paths", lambda *a, **k: [])
+
+        class Proc:
+            returncode = 0
+            stdout = '{"results": []}'
+            stderr = ""
+
+        monkeypatch.setattr("scanner.core.subprocess.run", lambda *a, **k: Proc())
+        assert run_semgrep(tmp_path, ["rules/custom"]) == {"results": []}
