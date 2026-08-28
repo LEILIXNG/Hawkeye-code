@@ -1,16 +1,19 @@
 """Unit tests for scanner/render.py's deterministic summary/sort logic
 (the HTML string itself isn't asserted line-by-line -- that's presentation,
 not logic worth pinning down in a unit test)."""
+import re
+
 from scanner.render import build_summary, render
+from scanner.report_i18n import REPORT_I18N
 
 
-def make_item(reachable="yes", severity="ERROR", verifier_failed=False, **overrides):
+def make_item(reachable="yes", severity="ERROR", verifier_failed=False, exploit_scenario_present=False, **overrides):
     finding = {
         "reachable": reachable,
         "sanitized": False,
         "confidence": 80,
         "reasoning": "verifier_failed: LLM did not return valid JSON" if verifier_failed else "because reasons",
-        "exploit_scenario": "",
+        "exploit_scenario": "attacker sends a crafted parameter" if exploit_scenario_present else "",
     }
     item = {
         "rule_id": "rule.x",
@@ -63,3 +66,38 @@ class TestRender:
         assert json_path.exists()
         assert result["summary"]["total"] == 2
         assert "demo-project" in html_path.read_text(encoding="utf-8")
+
+
+def flatten_keys(table: dict, prefix: str = "") -> set[str]:
+    keys = set()
+    for key, value in table.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            keys |= flatten_keys(value, f"{path}.")
+        else:
+            keys.add(path)
+    return keys
+
+
+class TestReportI18n:
+    def test_languages_have_identical_key_sets(self):
+        zh = flatten_keys(REPORT_I18N["zh"])
+        en = flatten_keys(REPORT_I18N["en"])
+        assert zh == en
+
+    def test_every_rendered_key_is_translated(self, tmp_path):
+        """Nothing in the page should stay blank -- the markup carries only
+        i18n keys, so a typo'd key renders as empty text with no error."""
+        verified = [
+            make_item(reachable="yes", exploit_scenario_present=True),
+            make_item(reachable="no"),
+            make_item(reachable="uncertain"),
+            make_item(verifier_failed=True, reachable="uncertain"),
+        ]
+        render(verified, "demo-project", tmp_path)
+        page = (tmp_path / "report.html").read_text(encoding="utf-8")
+
+        used = set(re.findall(r'data-i18n="([^"]+)"', page))
+        assert used, "expected the page to be driven by data-i18n keys"
+        for table in REPORT_I18N.values():
+            assert used <= flatten_keys(table)

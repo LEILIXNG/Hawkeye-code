@@ -7,11 +7,13 @@ reportable output. A dedicated "batch-generate polished writeup" pass can
 be added later without touching this stage's inputs.
 """
 import html
+import json
 import re
 from collections import Counter
 from pathlib import Path
 
 from scanner.common import write_json
+from scanner.report_i18n import DEFAULT_LANG, REPORT_I18N
 
 SEVERITY_ORDER = {"ERROR": 0, "WARNING": 1, "INFO": 2}
 REACHABLE_ORDER = {"yes": 0, "uncertain": 1, "no": 2}
@@ -81,7 +83,7 @@ def _card_html(item: dict) -> str:
     is_failed = "verifier_failed" in (finding.get("reasoning") or "")
     filter_bucket = "failed" if is_failed else reachable
     badge_class = {"yes": "badge-yes", "no": "badge-no"}.get(reachable, "badge-uncertain")
-    badge_label = "复核失败" if is_failed else html.escape(reachable)
+    badge_key = "failed" if is_failed else (reachable if reachable in ("yes", "no") else "uncertain")
     if is_failed:
         badge_class = "badge-failed"
 
@@ -95,41 +97,46 @@ def _card_html(item: dict) -> str:
     <details class="card" data-bucket="{filter_bucket}" data-type="{html.escape(vuln_type)}"
               data-file="{html.escape(item["sink_file"])}" data-severity="{html.escape(severity)}">
       <summary>
-        <span class="badge {badge_class}">{badge_label}</span>
+        <span class="badge {badge_class}" data-i18n="reachable.{badge_key}"></span>
         <span class="severity">{html.escape(severity)}</span>
         <span class="location">{html.escape(item["sink_file"])}:{item["sink_line"]}</span>
         <span class="rule">{html.escape(rule_ids)}</span>
       </summary>
       <div class="card-body">
-        <p><strong>漏洞类型:</strong> {html.escape(vuln_type)}</p>
-        <p><strong>规则说明:</strong> {html.escape(message)}</p>
-        <p><strong>CWE:</strong> {html.escape(_cwe_text(item) or "-")}
-           &nbsp;·&nbsp; <strong>Source:</strong> {html.escape(item["source_file"])}:{item["source_line"]}</p>
-        {f'<p><strong>置信度:</strong> {html.escape(str(confidence))}</p>' if confidence is not None else ""}
-        <p><strong>判断依据:</strong> {html.escape(finding.get("reasoning") or "")}</p>
-        {f'<p><strong>攻击场景:</strong> {html.escape(finding.get("exploit_scenario") or "")}</p>' if finding.get("exploit_scenario") else ""}
+        <p><strong data-i18n="card.type"></strong> {html.escape(vuln_type)}</p>
+        <p><strong data-i18n="card.rule"></strong> {html.escape(message)}</p>
+        <p><strong data-i18n="card.cwe"></strong> {html.escape(_cwe_text(item) or "-")}
+           &nbsp;·&nbsp; <strong data-i18n="card.source"></strong> {html.escape(item["source_file"])}:{item["source_line"]}</p>
+        {f'<p><strong data-i18n="card.confidence"></strong> {html.escape(str(confidence))}</p>' if confidence is not None else ""}
+        <p><strong data-i18n="card.reasoning"></strong> {html.escape(finding.get("reasoning") or "")}</p>
+        {f'<p><strong data-i18n="card.exploit"></strong> {html.escape(finding.get("exploit_scenario") or "")}</p>' if finding.get("exploit_scenario") else ""}
       </div>
     </details>
     """
 
 
+# (summary key, i18n key, css class) and (filter bucket, i18n key) -- the
+# visible text is filled in by the page's own applyI18n(), not here.
 _STAT_CARDS = [
-    ("reachable", "漏洞总数", "stat-yes"),
-    ("not_reachable", "安全数量", "stat-no"),
-    ("needs_review", "需要人工复查", "stat-uncertain"),
+    ("reachable", "stats.reachable", "stat-yes"),
+    ("not_reachable", "stats.safe", "stat-no"),
+    ("needs_review", "stats.needsReview", "stat-uncertain"),
 ]
 
 _FILTERS = [
-    ("all", "全部"),
-    ("yes", "可达"),
-    ("no", "不可达"),
-    ("uncertain", "不确定"),
-    ("failed", "复核失败"),
+    ("all", "filters.all"),
+    ("yes", "filters.yes"),
+    ("no", "filters.no"),
+    ("uncertain", "filters.uncertain"),
+    ("failed", "filters.failed"),
 ]
 
 
 def _facet_list_html(facet_name: str, counts: list[tuple[str, int]], total: int, label_fn=html.escape) -> str:
-    items = [f'<button class="facet-item active" data-facet="{facet_name}" data-value="">全部 ({total})</button>']
+    items = [
+        f'<button class="facet-item active" data-facet="{facet_name}" data-value="">'
+        f'<span data-i18n="facet.all"></span> ({total})</button>'
+    ]
     for value, count in counts:
         items.append(
             f'<button class="facet-item" data-facet="{facet_name}" data-value="{html.escape(value)}" title="{html.escape(value)}">'
@@ -146,12 +153,13 @@ def render_html(verified: list[dict], project_name: str) -> str:
 
     stat_values = {**summary, "needs_review": summary["uncertain"] + summary["verifier_failed"]}
     stat_cards = "\n".join(
-        f'<div class="stat {cls}"><div class="stat-value">{stat_values[key]}</div><div class="stat-label">{label}</div></div>'
-        for key, label, cls in _STAT_CARDS
+        f'<div class="stat {cls}"><div class="stat-value">{stat_values[key]}</div>'
+        f'<div class="stat-label" data-i18n="{label_key}"></div></div>'
+        for key, label_key, cls in _STAT_CARDS
     )
     filter_buttons = "\n".join(
-        f'<button class="filter-btn{" active" if key == "all" else ""}" data-filter="{key}">{label}</button>'
-        for key, label in _FILTERS
+        f'<button class="filter-btn{" active" if key == "all" else ""}" data-filter="{key}" data-i18n="{label_key}"></button>'
+        for key, label_key in _FILTERS
     )
 
     type_counts = _facet_counts(verified, vuln_type_label)
@@ -160,18 +168,22 @@ def render_html(verified: list[dict], project_name: str) -> str:
 
     facets_html = f"""
     <div class="facet-col">
-      <h3>按漏洞类型</h3>
+      <h3 data-i18n="facet.type"></h3>
       <div class="facet-list">{_facet_list_html("type", type_counts, total)}</div>
     </div>
     <div class="facet-col">
-      <h3>按文件</h3>
+      <h3 data-i18n="facet.file"></h3>
       <div class="facet-list">{_facet_list_html("file", file_counts, total, label_fn=lambda v: html.escape(v.replace(chr(92), "/").rsplit("/", 1)[-1]))}</div>
     </div>
     <div class="facet-col">
-      <h3>按危险程度</h3>
+      <h3 data-i18n="facet.severity"></h3>
       <div class="facet-list">{_facet_list_html("severity", severity_counts, total)}</div>
     </div>
     """
+
+    i18n_json = json.dumps(REPORT_I18N, ensure_ascii=False)
+    project_json = json.dumps(project_name, ensure_ascii=False)
+    default_lang_json = json.dumps(DEFAULT_LANG)
 
     return f"""<!doctype html>
 <html lang="zh">
@@ -231,7 +243,14 @@ def render_html(verified: list[dict], project_name: str) -> str:
     color: var(--text);
     line-height: 1.5;
   }}
-  h1 {{ font-size: 1.5rem; font-weight: 650; margin: 0 0 1.5rem; letter-spacing: -0.01em; }}
+  h1 {{ font-size: 1.5rem; font-weight: 650; margin: 0; letter-spacing: -0.01em; }}
+  .page-head {{ display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }}
+  #lang-toggle {{
+    font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer; flex-shrink: 0;
+    padding: 0.3rem 0.8rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-muted);
+  }}
+  #lang-toggle:hover {{ border-color: var(--text-faint); }}
   h3 {{ font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 0.5rem; }}
   .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.7rem; margin-bottom: 1.5rem; }}
   .stat {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem 1rem; box-shadow: var(--shadow); }}
@@ -275,7 +294,10 @@ def render_html(verified: list[dict], project_name: str) -> str:
 </style>
 </head>
 <body>
-  <h1>扫描报告 — {html.escape(project_name)}</h1>
+  <header class="page-head">
+    <h1><span data-i18n="reportTitle"></span> — {html.escape(project_name)}</h1>
+    <button id="lang-toggle" type="button"></button>
+  </header>
   <div class="summary">
     {stat_cards}
   </div>
@@ -286,10 +308,41 @@ def render_html(verified: list[dict], project_name: str) -> str:
     {facets_html}
   </div>
   <div id="card-list">
-    {cards if cards.strip() else '<p class="empty-state">没有候选发现</p>'}
+    {cards if cards.strip() else '<p class="empty-state" data-i18n="empty.noFindings"></p>'}
   </div>
-  <p id="empty-filter" class="empty-state" style="display:none">没有匹配这个筛选条件的发现</p>
+  <p id="empty-filter" class="empty-state" data-i18n="empty.noMatch" style="display:none"></p>
 <script>
+  const I18N = {i18n_json};
+  const PROJECT = {project_json};
+  const langToggle = document.getElementById('lang-toggle');
+
+  // Shares the tool page's storage key, so a language picked there carries
+  // over to reports opened from it. Reading it throws when the report is
+  // opened straight off disk in some browsers -- fall back to the default.
+  let lang = {default_lang_json};
+  try {{ lang = localStorage.getItem('hawkeye-lang') || lang; }} catch (err) {{}}
+  if (!I18N[lang]) lang = {default_lang_json};
+
+  const t = (path) => path.split('.').reduce((o, k) => (o ? o[k] : undefined), I18N[lang]);
+
+  function applyI18n() {{
+    document.documentElement.lang = lang;
+    document.title = t('reportTitle') + ' — ' + PROJECT;
+    document.querySelectorAll('[data-i18n]').forEach((el) => {{
+      const val = t(el.dataset.i18n);
+      if (typeof val === 'string') el.textContent = val;
+    }});
+    langToggle.textContent = t('langToggle');
+  }}
+
+  langToggle.addEventListener('click', () => {{
+    lang = lang === 'zh' ? 'en' : 'zh';
+    try {{ localStorage.setItem('hawkeye-lang', lang); }} catch (err) {{}}
+    applyI18n();
+  }});
+
+  applyI18n();
+
   const cards = Array.from(document.querySelectorAll('.card'));
   const reachableButtons = Array.from(document.querySelectorAll('.filter-btn'));
   const facetButtons = Array.from(document.querySelectorAll('.facet-item'));
