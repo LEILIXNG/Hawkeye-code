@@ -32,7 +32,7 @@ def main():
     parser.add_argument(
         "--candidates", default=None,
         help=f"Also count an unverified candidates file, e.g. {CANDIDATES_PATH} "
-             "(written by scripts/01_scan.py, which costs no LLM calls)",
+             "(written by scripts/01_scan.py, which makes no LLM calls)",
     )
     parser.add_argument("--noise-only", action="store_true", help="Only rules that never produced a reachable finding")
     parser.add_argument("--json", action="store_true", help="Emit rows as JSON instead of a table")

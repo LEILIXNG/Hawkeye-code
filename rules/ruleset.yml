@@ -15,10 +15,18 @@
 #   - java/aws-lambda/security -- serverless-specific taint rules
 # Revisit this trim if the tool ever needs to scan Android or Lambda code.
 
-# Rules that fire often enough to cost real money in LLM verification but
-# have never produced a true finding on this project's targets. Each id is
-# passed to semgrep as --exclude-rule, so the rule never runs at all --
-# nothing downstream sees it, and it costs no verify call.
+# Rules that fire often enough to be a real drag on a scan but have never
+# produced a true finding on this project's targets. Each id is passed to
+# semgrep as --exclude-rule, so the rule never runs at all -- nothing
+# downstream sees it, and it costs no verify call.
+#
+# What an excluded rule actually saves depends on the provider. On a paid
+# endpoint it is money; on the free-tier endpoints this project is normally
+# pointed at it is wall-clock time and, more importantly, rate-limit budget
+# -- free models tend to throttle (HTTP 429), and the more candidates a
+# scan carries the likelier it is to hit that mid-run. Either way it also
+# saves the human time spent dismissing the same false positive in every
+# report.
 #
 # Use the id exactly as it appears in scan output: because the configs
 # below are local directories, semgrep derives each rule's id from its path

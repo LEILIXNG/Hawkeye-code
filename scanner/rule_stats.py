@@ -1,9 +1,10 @@
 """Per-rule hit statistics over the reports accumulated in data/reports/.
 
 Answers "which rules are actually earning their keep": every candidate a
-rule produces costs one LLM verify call, so a rule that fires steadily and
-has never once come back reachable is a candidate for ruleset.yml's
-`exclude_rules`.
+rule produces costs one LLM verify call -- wall-clock time, and rate-limit
+budget on the free-tier endpoints this project is normally pointed at -- so
+a rule that fires steadily and has never once come back reachable is a
+candidate for ruleset.yml's `exclude_rules`.
 
 Attribution caveat: candidates are deduped by (source, sink) before
 verification, and one deduped candidate can carry several rule_ids. The
@@ -20,9 +21,9 @@ from scanner.render import verdict_of
 
 # "unverified" is not a verdict the LLM produces -- it is what a candidate
 # from data/candidates.json has, i.e. semgrep ran but the verify stage has
-# not. Keeping it as its own bucket means a free semgrep-only scan can
-# answer "which rules fire, how often" without inflating the uncertain
-# column with candidates nobody has judged.
+# not. Keeping it as its own bucket means a semgrep-only scan, which makes
+# no LLM calls at all, can answer "which rules fire, how often" without
+# inflating the uncertain column with candidates nobody has judged.
 VERDICTS = ("yes", "no", "uncertain", "failed", "unverified")
 
 
@@ -42,7 +43,7 @@ def load_report_findings(reports_dir: Path) -> list[dict]:
 
 def load_candidates(candidates_path: Path) -> list[dict]:
     """Candidates straight out of the scan stage (scripts/01_scan.py), with
-    no verdicts attached -- free to produce, since it involves no LLM."""
+    no verdicts attached -- produced without a single LLM call."""
     try:
         return json.loads(candidates_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
