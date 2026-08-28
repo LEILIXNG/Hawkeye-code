@@ -15,7 +15,12 @@ from pathlib import Path
 from scanner.common import sha256
 
 
-def run_semgrep(target: Path, configs: list[str], exclude_rules: list[str] | None = None) -> dict:
+def run_semgrep(
+    target: Path,
+    configs: list[str],
+    exclude_rules: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
+) -> dict:
     # --no-git-ignore: semgrep's default is to enumerate files via `git
     # ls-files` when the target sits inside a git working tree, which
     # silently skips anything not tracked by git. That's exactly what
@@ -27,6 +32,10 @@ def run_semgrep(target: Path, configs: list[str], exclude_rules: list[str] | Non
         cmd += ["--config", c]
     for rule_id in exclude_rules or []:
         cmd += ["--exclude-rule", rule_id]
+    # --exclude globs containing a slash are anchored to the scan root, so
+    # ruleset.yml writes those as **/src/it; passed through verbatim here.
+    for pattern in exclude_paths or []:
+        cmd += ["--exclude", pattern]
     cmd.append(str(target))
 
     print(f"[scan] running: {' '.join(cmd)}", file=sys.stderr)

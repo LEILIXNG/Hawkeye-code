@@ -13,11 +13,19 @@ Usage:
 import argparse
 from pathlib import Path
 
-from common import CANDIDATES_PATH, ensure_data_dir, load_default_configs, load_excluded_rules, write_json
+from common import (
+    CANDIDATES_PATH,
+    ensure_data_dir,
+    load_default_configs,
+    load_excluded_paths,
+    load_excluded_rules,
+    write_json,
+)
 from scanner.core import dedup, extract_source_location, normalize, relpath, run_semgrep  # noqa: F401
 
 DEFAULT_CONFIGS = load_default_configs()
 EXCLUDED_RULES = load_excluded_rules()
+EXCLUDED_PATHS = load_excluded_paths()
 
 
 def main():
@@ -34,7 +42,7 @@ def main():
     target = Path(args.target)
     configs = [c.strip() for c in args.config.split(",") if c.strip()]
 
-    raw = run_semgrep(target, configs, EXCLUDED_RULES)
+    raw = run_semgrep(target, configs, EXCLUDED_RULES, EXCLUDED_PATHS)
     candidates = normalize(raw, target)
     deduped = dedup(candidates)
 

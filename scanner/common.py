@@ -57,3 +57,9 @@ def load_excluded_rules() -> list[str]:
     """Rule ids from ruleset.yml's `exclude_rules`, for `semgrep
     --exclude-rule`. Absent or empty means nothing is excluded."""
     return list(_load_ruleset().get("exclude_rules") or [])
+
+
+def load_excluded_paths() -> list[str]:
+    """Path globs from ruleset.yml's `exclude_paths`, for `semgrep
+    --exclude`. Absent or empty means nothing is excluded."""
+    return list(_load_ruleset().get("exclude_paths") or [])

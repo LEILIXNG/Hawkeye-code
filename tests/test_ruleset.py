@@ -10,15 +10,26 @@ currently only surface as a broken (or silently degraded) scan:
     not at edit time;
   - a custom rule missing metadata.cwe still fires, but render.py's
     vuln_type_label() falls back to "Uncategorized", so the finding is
-    quietly unlabelled in the report instead of erroring.
+    quietly unlabelled in the report instead of erroring;
+  - an exclude_paths glob that matches nothing (see the anchoring trap in
+    ruleset.yml) excludes nothing, and a scan that got noisier is not a
+    failure anyone notices.
 """
+import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 import yaml
 
-from scanner.common import ROOT, RULESET_PATH, load_default_configs, load_excluded_rules
+from scanner.common import (
+    ROOT,
+    RULESET_PATH,
+    load_default_configs,
+    load_excluded_paths,
+    load_excluded_rules,
+)
 
 CUSTOM_RULES_DIR = ROOT / "rules" / "custom"
 REQUIRED_RULE_FIELDS = ("id", "languages", "severity", "message")
@@ -62,6 +73,31 @@ class TestRulesetFile:
         like a path or a glob here would silently exclude nothing."""
         for rule_id in load_excluded_rules():
             assert "/" not in rule_id and "*" not in rule_id, rule_id
+
+    def test_exclude_paths_is_a_list_of_strings(self):
+        ruleset = yaml.safe_load(RULESET_PATH.read_text(encoding="utf-8"))
+        excluded = ruleset.get("exclude_paths") or []
+        assert isinstance(excluded, list)
+        assert all(isinstance(g, str) and g.strip() for g in excluded)
+        assert len(set(excluded)) == len(excluded), "duplicate globs in exclude_paths"
+
+    def test_multi_segment_globs_are_unanchored(self):
+        """semgrep anchors an --exclude pattern containing a slash to the
+        scan root, so a bare `src/it` matches the top-level one and silently
+        misses moduleA/src/it. Those have to be written as `**/src/it`."""
+        for glob in load_excluded_paths():
+            if "/" in glob:
+                assert glob.startswith("**/"), (
+                    f"{glob!r} contains a slash, so it only matches at the scan root. "
+                    "Write it as `**/" + glob.lstrip("/") + "` to match at any depth."
+                )
+
+    def test_exclude_paths_are_relative_globs(self):
+        """An absolute path, or one climbing out of the target, cannot match
+        anything inside an uploaded workspace."""
+        for glob in load_excluded_paths():
+            assert not glob.startswith(("/", "\\")) and ":" not in glob, glob
+            assert ".." not in glob.split("/"), glob
 
     def test_every_config_path_exists(self):
         missing = [c for c in load_default_configs() if not (ROOT / c).exists()]
@@ -108,3 +144,50 @@ def test_semgrep_accepts_the_whole_ruleset():
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     assert proc.returncode == 0, f"semgrep rejected the ruleset:\n{proc.stdout}\n{proc.stderr}"
+
+
+@pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
+def test_exclude_paths_actually_keep_files_out_of_the_scan(tmp_path):
+    """The failure this catches is silent: a glob that matches nothing still
+    scans clean, just with the noise it was meant to remove. So rather than
+    re-asserting the strings, plant one file per configured glob and check
+    semgrep's own list of scanned paths.
+
+    Each glob is exercised both at the top level and one directory down,
+    because that is exactly where the anchoring trap shows up.
+    """
+    def plant(rel: str):
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("class V {}\n", encoding="utf-8")
+
+    plant("src/main/java/Kept.java")  # control: must survive every exclusion
+    expected_excluded = set()
+    for glob in load_excluded_paths():
+        stem = glob.removeprefix("**/")
+        if stem.startswith("*."):  # file glob, e.g. *.min.js
+            paths = [f"a{stem[1:]}", f"moduleA/b{stem[1:]}"]
+        else:
+            paths = [f"{stem}/V.java", f"moduleA/{stem}/V.java"]
+        for rel in paths:
+            plant(rel)
+            expected_excluded.add(rel)
+
+    cmd = ["semgrep", "--json", "--metrics=off", "--no-git-ignore",
+           "--config", str(ROOT / "rules" / "custom")]
+    for glob in load_excluded_paths():
+        cmd += ["--exclude", glob]
+    cmd.append(str(tmp_path))
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode in (0, 1), f"semgrep failed:\n{proc.stderr}"
+
+    scanned = {
+        str(Path(p).resolve().relative_to(tmp_path.resolve())).replace("\\", "/")
+        for p in json.loads(proc.stdout).get("paths", {}).get("scanned", [])
+    }
+    assert "src/main/java/Kept.java" in scanned, (
+        "the exclusions swallowed ordinary source code: " + repr(sorted(scanned))
+    )
+    leaked = sorted(expected_excluded & scanned)
+    assert not leaked, f"exclude_paths did not keep these out of the scan: {leaked}"

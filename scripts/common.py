@@ -25,6 +25,7 @@ from scanner.common import (  # noqa: F401
     WORKSPACES_DIR,
     ensure_data_dir,
     load_default_configs,
+    load_excluded_paths,
     load_excluded_rules,
     load_json,
     sha256,

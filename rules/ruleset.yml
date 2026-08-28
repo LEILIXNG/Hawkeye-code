@@ -43,6 +43,45 @@
 # scope (see docs/framework.md) over ones the model merely disagreed with.
 exclude_rules: []
 
+# Paths never worth scanning, whatever the target is. Each entry is passed
+# to semgrep as --exclude, which takes gitignore-style globs.
+#
+# This matters because the tool scans whatever zip a user uploads: a real
+# project's archive carries its build output, its vendored dependencies and
+# its generated sources alongside the actual source, and findings in those
+# say nothing about whether the project is vulnerable. They do cost verify
+# calls and human attention (see the exclude_rules note above).
+#
+# Semgrep already skips some of these on its own -- measured against 1.173.0,
+# it ignores build/, dist/, node_modules/, vendor/, .venv/, test/, tests/ and
+# src/test/ without being asked. Everything below is a *gap* in that default,
+# so keep new entries to things actually verified to be scanned otherwise;
+# a redundant entry is harmless but misleads the next reader into thinking
+# it is doing work.
+#
+# Two glob traps, both verified rather than assumed:
+#   - a bare name (`target`) matches at any depth, including moduleA/target;
+#   - a pattern containing a slash is anchored to the scan root, so `src/it`
+#     silently misses moduleA/src/it. Write those as `**/src/it`.
+# Keep this list to build output, dependencies, generated code and test
+# trees. Directories that merely look unimportant (docs/, examples/) hold
+# real source and belong in the scan -- a false negative is worse than the
+# false positive it saves. Nothing target-specific goes here either: this
+# file ships with the tool, not with any one project.
+exclude_paths:
+  - target                    # Maven build output
+  - out                       # Gradle / IDE build output
+  - .gradle                   # Gradle caches and generated scripts
+  - gen                       # generated sources
+  - generated
+  - venv                      # semgrep's default covers .venv but not venv
+  - third_party               # vendored dependency source
+  - external
+  - testdata                  # test fixtures (Go convention, used elsewhere too)
+  - "**/src/it"               # Maven failsafe integration tests
+  - "**/src/integrationTest"  # Gradle integration tests
+  - "*.min.js"                # minified bundles: unreadable and not the source
+
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
   - rules/vendor/semgrep-rules/java/servlets/security

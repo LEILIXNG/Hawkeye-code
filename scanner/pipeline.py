@@ -8,7 +8,13 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from scanner.common import PROMPTS_DIR, ensure_data_dir, load_default_configs, load_excluded_rules
+from scanner.common import (
+    PROMPTS_DIR,
+    ensure_data_dir,
+    load_default_configs,
+    load_excluded_paths,
+    load_excluded_rules,
+)
 from scanner.core import build_context, build_prompt, dedup, normalize, run_semgrep
 from scanner.ingest import safe_extract
 from scanner.render import render
@@ -16,6 +22,7 @@ from scanner.verify import call_llm
 
 DEFAULT_CONFIGS = load_default_configs()
 EXCLUDED_RULES = load_excluded_rules()
+EXCLUDED_PATHS = load_excluded_paths()
 
 
 class PipelineError(Exception):
@@ -44,7 +51,7 @@ def run_pipeline(
 
     on_status("scanning")
     try:
-        raw = run_semgrep(workspace_dir, DEFAULT_CONFIGS, EXCLUDED_RULES)
+        raw = run_semgrep(workspace_dir, DEFAULT_CONFIGS, EXCLUDED_RULES, EXCLUDED_PATHS)
         candidates = dedup(normalize(raw, workspace_dir))
     except Exception as e:
         raise PipelineError(f"scan failed: {e}") from e
