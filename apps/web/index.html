@@ -322,7 +322,7 @@ const I18N = {
     status: { ingesting: "解压中", scanning: "扫描中", verifying: "LLM 复核中", done: "扫描完成", failed: "扫描失败" },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
-    stats: { total: "候选总数", reachable: "可达", notReachable: "不可达", uncertain: "不确定", verifierFailed: "复核失败" },
+    stats: { reachable: "漏洞总数", safe: "安全数量", needsReview: "需要人工复查" },
     card: { rule: "规则说明:", confidence: "置信度:", reasoning: "判断依据:", exploit: "攻击场景:" },
   },
   en: {
@@ -369,7 +369,7 @@ const I18N = {
     status: { ingesting: "Extracting", scanning: "Scanning", verifying: "LLM verifying", done: "Scan complete", failed: "Scan failed" },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
-    stats: { total: "Total candidates", reachable: "Reachable", notReachable: "Not reachable", uncertain: "Uncertain", verifierFailed: "Verify failed" },
+    stats: { reachable: "Vulnerabilities found", safe: "Safe count", needsReview: "Needs manual review" },
     card: { rule: "Rule:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:" },
   },
 };
@@ -745,10 +745,12 @@ async function selectScan(tr, project, scan) {
   try {
     const report = await api(`/scans/${scan.id}/report.json`);
     const s = report.summary;
+    const needsReview = s.uncertain + s.verifier_failed;
     const statHtml = [
-      ["total", "stats.total", ""], ["reachable", "stats.reachable", "stat-yes"], ["not_reachable", "stats.notReachable", "stat-no"],
-      ["uncertain", "stats.uncertain", "stat-uncertain"], ["verifier_failed", "stats.verifierFailed", ""],
-    ].map(([key, labelKey, cls]) => `<span class="stat-mini ${cls}"><b>${s[key]}</b>${t(labelKey)}</span>`).join("");
+      [s.reachable, "stats.reachable", "stat-yes"],
+      [s.not_reachable, "stats.safe", "stat-no"],
+      [needsReview, "stats.needsReview", "stat-uncertain"],
+    ].map(([value, labelKey, cls]) => `<span class="stat-mini ${cls}"><b>${value}</b>${t(labelKey)}</span>`).join("");
     const filterHtml = ["all", "yes", "no", "uncertain", "failed"].map((key, i) =>
       `<button class="filter-btn${i === 0 ? " active" : ""}" data-filter="${key}">${t(`filters.${key}`)}</button>`).join("");
     const cardsHtml = report.findings.length
