@@ -2,45 +2,207 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>sast-local</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hawkeye Code</title>
+<link rel="icon" href="/logo.png">
 <style>
-  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.3rem; }
-  h2 { font-size: 1.05rem; margin-top: 2.5rem; }
-  section { border: 1px solid #e2e2e5; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1.2rem; }
-  label { display: block; font-size: 0.85rem; color: #444; margin: 0.6rem 0 0.2rem; }
-  input, select { width: 100%; padding: 0.4rem 0.5rem; box-sizing: border-box; font-size: 0.9rem; }
-  button { margin-top: 0.8rem; padding: 0.45rem 1rem; cursor: pointer; }
-  .row { display: flex; gap: 0.6rem; align-items: center; }
-  #status-msg, #settings-msg { font-size: 0.85rem; margin-top: 0.5rem; }
-  .ok { color: #16803c; }
-  .err { color: #d64545; }
-  table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; font-size: 0.85rem; }
-  td, th { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid #eee; }
-  a.report-link { display: inline-block; margin-top: 0.6rem; }
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --border: #e3e5e9;
+    --text: #1a1d23;
+    --text-muted: #6b7280;
+    --text-faint: #9ca3af;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-soft: #eff4ff;
+    --success: #16803c;
+    --success-soft: #ecfdf3;
+    --danger: #d64545;
+    --danger-soft: #fef2f2;
+    --warning: #b45309;
+    --warning-soft: #fffbeb;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --surface: #171a21;
+      --border: #2a2e37;
+      --text: #e8eaed;
+      --text-muted: #9aa1ac;
+      --text-faint: #6b7280;
+      --primary: #5b8def;
+      --primary-hover: #7ba3f2;
+      --primary-soft: #16233d;
+      --success: #34d399;
+      --success-soft: #0f2b21;
+      --danger: #f27272;
+      --danger-soft: #3a1719;
+      --warning: #fbbf24;
+      --warning-soft: #3a2a0d;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header { margin-bottom: 2rem; }
+  .brand { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; }
+  .brand img { width: 1.7rem; height: 1.7rem; border-radius: 6px; flex-shrink: 0; }
+  h1 { font-size: 1.5rem; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+  .subtitle { color: var(--text-muted); font-size: 0.9rem; margin: 0; }
+  h2 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; display: flex; align-items: center; gap: 0.5rem; }
+  h2 .step { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 0.75rem; font-weight: 700; }
+  h3 { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 1.6rem 0 0.7rem; }
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.4rem;
+    margin-bottom: 1.1rem;
+    box-shadow: var(--shadow);
+  }
+  label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); margin: 0.85rem 0 0.3rem; }
+  label:first-of-type { margin-top: 0; }
+  input, select {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    box-sizing: border-box;
+    font-size: 0.9rem;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--primary); }
+  input::placeholder { color: var(--text-faint); }
+  button {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-family: inherit;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  }
+  button:hover { border-color: var(--text-faint); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  button.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+  button.danger-btn { color: var(--danger); }
+  button.danger-btn:hover { border-color: var(--danger); background: var(--danger-soft); }
+  button.small { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .row { display: flex; gap: 0.6rem; align-items: center; margin-top: 1rem; }
+  .file-picker { display: flex; gap: 0.6rem; align-items: center; }
+  .file-picker input[type=file] { flex: 1; }
+  #status-msg, #settings-msg { font-size: 0.85rem; margin-top: 0.75rem; display: flex; align-items: center; gap: 0.4rem; min-height: 1.2rem; }
+  #status-msg:empty, #settings-msg:empty { margin-top: 0; }
+  .ok { color: var(--success); }
+  .err { color: var(--danger); }
+  .spinner {
+    width: 0.8rem; height: 0.8rem; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--primary);
+    animation: spin 0.7s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.4rem; font-size: 0.85rem; }
+  td, th { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.02em; }
+  tbody tr:last-child td { border-bottom: none; }
+  .empty-row td { color: var(--text-faint); text-align: center; padding: 1.2rem 0; font-size: 0.85rem; }
+  .pill { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; }
+  .pill-done { background: var(--success-soft); color: var(--success); }
+  .pill-failed { background: var(--danger-soft); color: var(--danger); }
+  .pill-active { background: var(--success-soft); color: var(--success); }
+  .pill-progress { background: var(--warning-soft); color: var(--warning); }
+  a.report-link { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.9rem; color: var(--primary); text-decoration: none; font-size: 0.85rem; font-weight: 600; }
+  a.report-link:hover { text-decoration: underline; }
+  a { color: var(--primary); }
+  .config-row-name { font-weight: 600; }
+  .config-row-url { color: var(--text-muted); font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  tbody tr[data-scan-id] { cursor: pointer; }
+  tbody tr[data-scan-id]:hover { background: var(--primary-soft); }
+  tbody tr[data-scan-id].selected { background: var(--primary-soft); }
+  #scan-detail { display: none; margin-top: 1.1rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
+  .detail-header { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+  .detail-header h3 { margin: 0; text-transform: none; letter-spacing: normal; font-size: 0.95rem; color: var(--text); }
+  .detail-header a { font-size: 0.8rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .detail-header a:hover { text-decoration: underline; }
+  .detail-summary { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+  .stat-mini { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.7rem; font-size: 0.78rem; }
+  .stat-mini b { font-size: 0.95rem; margin-right: 0.25rem; }
+  .stat-mini.stat-yes b { color: var(--danger); }
+  .stat-mini.stat-no b { color: var(--success); }
+  .stat-mini.stat-uncertain b { color: var(--warning); }
+  .filters { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+  .filter-btn { font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer; padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); }
+  .filter-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .finding-card { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 0.5rem; padding: 0.3rem 0.7rem; background: var(--bg); }
+  .finding-card[data-hidden] { display: none; }
+  .finding-card summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: center; padding: 0.45rem 0; list-style: none; flex-wrap: wrap; font-size: 0.82rem; }
+  .finding-card summary::-webkit-details-marker { display: none; }
+  .finding-card .card-body { padding: 0.4rem 0.1rem 0.5rem; line-height: 1.6; border-top: 1px solid var(--border); margin-top: 0.2rem; font-size: 0.82rem; }
+  .finding-card .card-body p { margin: 0.35rem 0; }
+  .badge { font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; color: #fff; }
+  .badge-yes { background: var(--danger); }
+  .badge-no { background: var(--success); }
+  .badge-uncertain { background: var(--warning); }
+  .badge-failed { background: var(--text-muted); }
+  .finding-location { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  .finding-rule { font-size: 0.75rem; color: var(--text-faint); margin-left: auto; }
 </style>
 </head>
 <body>
-  <h1>sast-local — 本地代码安全扫描</h1>
+  <header>
+    <div class="brand">
+      <img src="/logo.png" alt="Hawkeye Code">
+      <h1>Hawkeye Code</h1>
+    </div>
+    <p class="subtitle">本地代码安全扫描 — Semgrep 候选 + LLM 复核</p>
+  </header>
 
   <section>
-    <h2 style="margin-top:0">1. 上传 zip 并扫描</h2>
-    <input type="file" id="file-input" accept=".zip">
-    <button id="upload-btn">上传并开始扫描</button>
+    <h2><span class="step">1</span>上传 zip 并扫描</h2>
+    <div class="file-picker">
+      <input type="file" id="file-input" accept=".zip">
+      <button id="upload-btn" class="primary">上传并开始扫描</button>
+    </div>
     <p id="status-msg"></p>
     <a id="report-link" class="report-link" style="display:none" target="_blank">查看报告 →</a>
   </section>
 
   <section>
-    <h2 style="margin-top:0">历史扫描</h2>
+    <h2><span class="step">2</span>历史扫描</h2>
     <table id="history-table">
       <thead><tr><th>项目</th><th>状态</th><th>时间</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
+    <div id="scan-detail">
+      <div class="detail-header">
+        <h3 id="detail-title"></h3>
+        <a id="detail-open-link" target="_blank">在新窗口打开完整报告 →</a>
+      </div>
+      <div id="detail-body"></div>
+    </div>
   </section>
 
   <section>
-    <h2 style="margin-top:0">LLM 供应商设置</h2>
+    <h2><span class="step">3</span>LLM 供应商设置</h2>
     <label>配置名称</label>
     <input id="config-name" placeholder="例如 我的 GLM / 备用 DeepSeek">
     <label>模板</label>
@@ -59,11 +221,11 @@
     <input id="verify-model" placeholder="例如 gpt-4o-mini / glm-4-flash / deepseek-chat">
     <div class="row">
       <button id="test-btn">测试连接</button>
-      <button id="save-btn">保存为新配置</button>
+      <button id="save-btn" class="primary">保存为新配置</button>
     </div>
     <p id="settings-msg"></p>
 
-    <h3 style="font-size:0.95rem; margin-top:1.4rem;">已保存的配置</h3>
+    <h3>已保存的配置</h3>
     <table id="config-table">
       <thead><tr><th>名称</th><th>Base URL</th><th>模型</th><th>状态</th><th></th></tr></thead>
       <tbody></tbody>
@@ -85,14 +247,18 @@ async function api(path, options) {
   return body;
 }
 
+function setMsg(el, text, kind) {
+  el.className = kind || "";
+  el.innerHTML = kind === "" && text ? `<span class="spinner"></span>${text}` : text;
+}
+
 $("provider-template").addEventListener("change", (e) => {
   $("base-url").value = e.target.value;
 });
 
 $("test-btn").addEventListener("click", async () => {
   const msg = $("settings-msg");
-  msg.textContent = "测试中...";
-  msg.className = "";
+  setMsg(msg, "测试中...", "");
   try {
     const result = await api("/settings/llm/test", {
       method: "POST",
@@ -103,11 +269,9 @@ $("test-btn").addEventListener("click", async () => {
         verify_model: $("verify-model").value,
       }),
     });
-    msg.textContent = result.success ? "连接成功" : `连接失败: ${result.error}`;
-    msg.className = result.success ? "ok" : "err";
+    setMsg(msg, result.success ? "✓ 连接成功" : `✕ 连接失败: ${result.error}`, result.success ? "ok" : "err");
   } catch (e) {
-    msg.textContent = `请求失败: ${e.message}`;
-    msg.className = "err";
+    setMsg(msg, `✕ 请求失败: ${e.message}`, "err");
   }
 });
 
@@ -124,12 +288,10 @@ $("save-btn").addEventListener("click", async () => {
         verify_model: $("verify-model").value,
       }),
     });
-    msg.textContent = "已保存并启用";
-    msg.className = "ok";
+    setMsg(msg, "✓ 已保存并启用", "ok");
     loadConfigList();
   } catch (e) {
-    msg.textContent = `保存失败: ${e.message}`;
-    msg.className = "err";
+    setMsg(msg, `✕ 保存失败: ${e.message}`, "err");
   }
 });
 
@@ -147,17 +309,21 @@ async function loadConfigList() {
   const tbody = document.querySelector("#config-table tbody");
   tbody.innerHTML = "";
   const configs = await api("/settings/llm/list");
+  if (configs.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">还没有保存过配置</td></tr>';
+    return;
+  }
   for (const cfg of configs) {
     const tr = document.createElement("tr");
     const statusCell = cfg.is_active
-      ? '<span class="ok">使用中</span>'
-      : `<button data-activate="${cfg.id}">启用</button>`;
+      ? '<span class="pill pill-active">使用中</span>'
+      : `<button class="small" data-activate="${cfg.id}">启用</button>`;
     tr.innerHTML = `
-      <td>${cfg.name}</td>
-      <td>${cfg.base_url || "(官方 OpenAI)"}</td>
+      <td class="config-row-name">${cfg.name}</td>
+      <td class="config-row-url">${cfg.base_url || "(官方 OpenAI)"}</td>
       <td>${cfg.verify_model}</td>
       <td>${statusCell}</td>
-      <td><button data-delete="${cfg.id}">删除</button></td>`;
+      <td><button class="small danger-btn" data-delete="${cfg.id}">删除</button></td>`;
     tbody.appendChild(tr);
   }
 
@@ -165,13 +331,11 @@ async function loadConfigList() {
     btn.addEventListener("click", async () => {
       try {
         await api(`/settings/llm/${btn.dataset.activate}/activate`, { method: "POST" });
-        msg.textContent = "已切换";
-        msg.className = "ok";
+        setMsg(msg, "✓ 已切换", "ok");
         loadActiveConfig();
         loadConfigList();
       } catch (e) {
-        msg.textContent = `切换失败: ${e.message}`;
-        msg.className = "err";
+        setMsg(msg, `✕ 切换失败: ${e.message}`, "err");
       }
     });
   });
@@ -183,8 +347,7 @@ async function loadConfigList() {
         loadActiveConfig();
         loadConfigList();
       } catch (e) {
-        msg.textContent = `删除失败: ${e.message}`;
-        msg.className = "err";
+        setMsg(msg, `✕ 删除失败: ${e.message}`, "err");
       }
     });
   });
@@ -193,13 +356,14 @@ async function loadConfigList() {
 $("upload-btn").addEventListener("click", async () => {
   const statusMsg = $("status-msg");
   const reportLink = $("report-link");
+  const uploadBtn = $("upload-btn");
   reportLink.style.display = "none";
   const file = $("file-input").files[0];
-  if (!file) { statusMsg.textContent = "请先选择一个 zip 文件"; statusMsg.className = "err"; return; }
+  if (!file) { setMsg(statusMsg, "请先选择一个 zip 文件", "err"); return; }
 
+  uploadBtn.disabled = true;
   try {
-    statusMsg.textContent = "上传中...";
-    statusMsg.className = "";
+    setMsg(statusMsg, "上传中...", "");
     const form = new FormData();
     form.append("file", file);
     const project = await api("/uploads", { method: "POST", body: form });
@@ -213,28 +377,35 @@ $("upload-btn").addEventListener("click", async () => {
     await pollScan(scan.id, statusMsg, reportLink);
     loadHistory();
   } catch (e) {
-    statusMsg.textContent = `失败: ${e.message}`;
-    statusMsg.className = "err";
+    setMsg(statusMsg, `✕ 失败: ${e.message}`, "err");
+  } finally {
+    uploadBtn.disabled = false;
   }
 });
+
+const STATUS_LABELS = {
+  ingesting: "解压中",
+  scanning: "扫描中",
+  verifying: "LLM 复核中",
+  done: "扫描完成",
+  failed: "扫描失败",
+};
 
 async function pollScan(scanId, statusMsg, reportLink) {
   while (true) {
     const scan = await api(`/scans/${scanId}`);
-    statusMsg.textContent = `扫描状态: ${scan.status}`;
-    statusMsg.className = "";
+    const label = STATUS_LABELS[scan.status] || scan.status;
     if (scan.status === "done") {
-      statusMsg.textContent = "扫描完成";
-      statusMsg.className = "ok";
+      setMsg(statusMsg, `✓ ${label}`, "ok");
       reportLink.href = `/scans/${scanId}/report.html`;
-      reportLink.style.display = "inline-block";
+      reportLink.style.display = "inline-flex";
       return;
     }
     if (scan.status === "failed") {
-      statusMsg.textContent = `扫描失败: ${scan.error_message || ""}`;
-      statusMsg.className = "err";
+      setMsg(statusMsg, `✕ ${label}${scan.error_message ? `: ${scan.error_message}` : ""}`, "err");
       return;
     }
+    setMsg(statusMsg, label, "");
     await new Promise((r) => setTimeout(r, 2000));
   }
 }
@@ -242,15 +413,129 @@ async function pollScan(scanId, statusMsg, reportLink) {
 async function loadHistory() {
   const tbody = document.querySelector("#history-table tbody");
   tbody.innerHTML = "";
+  $("scan-detail").style.display = "none";
   const projects = await api("/projects");
+  const rows = [];
   for (const project of projects) {
     const scans = await api(`/projects/${project.id}/scans`);
-    for (const scan of scans) {
-      const tr = document.createElement("tr");
-      const link = scan.status === "done" ? `<a href="/scans/${scan.id}/report.html" target="_blank">查看报告</a>` : "";
-      tr.innerHTML = `<td>${project.name}</td><td>${scan.status}</td><td>${scan.started_at ?? ""}</td><td>${link}</td>`;
-      tbody.appendChild(tr);
-    }
+    for (const scan of scans) rows.push({ project, scan });
+  }
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">还没有扫描记录,上传一个 zip 试试</td></tr>';
+    return;
+  }
+  for (const { project, scan } of rows) {
+    const tr = document.createElement("tr");
+    tr.dataset.scanId = scan.id;
+    const pillClass = scan.status === "done" ? "pill-done" : scan.status === "failed" ? "pill-failed" : "pill-progress";
+    const statusPill = `<span class="pill ${pillClass}">${STATUS_LABELS[scan.status] || scan.status}</span>`;
+    tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td>${esc(scan.started_at ?? "")}</td><td>查看 →</td>`;
+    tr.addEventListener("click", () => selectScan(tr, project, scan));
+    tbody.appendChild(tr);
+  }
+}
+
+const REACHABLE_LABELS = { yes: "可达", no: "不可达", uncertain: "不确定" };
+
+function esc(s) {
+  // Rule messages/paths are trusted, but LLM `reasoning`/`exploit_scenario`
+  // text can echo back snippets of the scanned (untrusted) source code, so
+  // everything from a finding gets escaped before going into innerHTML.
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function findingCardHtml(item) {
+  const finding = item.finding || {};
+  const reachable = finding.reachable || "uncertain";
+  const isFailed = (finding.reasoning || "").includes("verifier_failed");
+  const bucket = isFailed ? "failed" : reachable;
+  const badgeClass = isFailed ? "badge-failed" : { yes: "badge-yes", no: "badge-no" }[reachable] || "badge-uncertain";
+  const badgeLabel = isFailed ? "复核失败" : (REACHABLE_LABELS[reachable] || reachable);
+  const ruleIds = (item.rule_ids || [item.rule_id || ""]).join(", ");
+  const messages = (item.messages || [item.message || ""]).join(" / ");
+  const exploit = finding.exploit_scenario
+    ? `<p><strong>攻击场景:</strong> ${esc(finding.exploit_scenario)}</p>` : "";
+  const confidence = finding.confidence != null
+    ? `<p><strong>置信度:</strong> ${esc(finding.confidence)}</p>` : "";
+  return `
+    <details class="finding-card" data-bucket="${esc(bucket)}">
+      <summary>
+        <span class="badge ${badgeClass}">${badgeLabel}</span>
+        <span>${esc(item.severity)}</span>
+        <span class="finding-location">${esc(item.sink_file)}:${esc(item.sink_line)}</span>
+        <span class="finding-rule">${esc(ruleIds)}</span>
+      </summary>
+      <div class="card-body">
+        <p><strong>规则说明:</strong> ${esc(messages)}</p>
+        <p><strong>CWE:</strong> ${esc(item.cwe || "-")} &nbsp;·&nbsp; <strong>Source:</strong> ${esc(item.source_file)}:${esc(item.source_line)}</p>
+        ${confidence}
+        <p><strong>判断依据:</strong> ${esc(finding.reasoning)}</p>
+        ${exploit}
+      </div>
+    </details>`;
+}
+
+const DETAIL_FILTERS = [
+  ["all", "全部"], ["yes", "可达"], ["no", "不可达"], ["uncertain", "不确定"], ["failed", "复核失败"],
+];
+
+async function selectScan(tr, project, scan) {
+  document.querySelectorAll("#history-table tr.selected").forEach((el) => el.classList.remove("selected"));
+  tr.classList.add("selected");
+
+  const detail = $("scan-detail");
+  const title = $("detail-title");
+  const openLink = $("detail-open-link");
+  const body = $("detail-body");
+  detail.style.display = "block";
+  title.textContent = `${project.name} — ${STATUS_LABELS[scan.status] || scan.status}`;
+
+  if (scan.status === "failed") {
+    openLink.style.display = "none";
+    body.innerHTML = `<p class="err" style="font-size:0.85rem">✕ ${esc(scan.error_message || "扫描失败,没有更多信息")}</p>`;
+    return;
+  }
+  if (scan.status !== "done") {
+    openLink.style.display = "none";
+    body.innerHTML = `<p style="font-size:0.85rem;color:var(--text-muted)"><span class="spinner"></span> 扫描还在进行中(${STATUS_LABELS[scan.status] || scan.status}),完成后回来点这一行看结果</p>`;
+    return;
+  }
+
+  openLink.style.display = "inline";
+  openLink.href = `/scans/${scan.id}/report.html`;
+  body.innerHTML = '<p style="font-size:0.85rem;color:var(--text-muted)"><span class="spinner"></span> 加载中...</p>';
+  try {
+    const report = await api(`/scans/${scan.id}/report.json`);
+    const s = report.summary;
+    const statHtml = [
+      ["total", "候选总数", ""], ["reachable", "可达", "stat-yes"], ["not_reachable", "不可达", "stat-no"],
+      ["uncertain", "不确定", "stat-uncertain"], ["verifier_failed", "复核失败", ""],
+    ].map(([key, label, cls]) => `<span class="stat-mini ${cls}"><b>${s[key]}</b>${label}</span>`).join("");
+    const filterHtml = DETAIL_FILTERS.map(([key, label], i) =>
+      `<button class="filter-btn${i === 0 ? " active" : ""}" data-filter="${key}">${label}</button>`).join("");
+    const cardsHtml = report.findings.length
+      ? report.findings.map(findingCardHtml).join("")
+      : '<p style="font-size:0.85rem;color:var(--text-faint)">没有候选发现</p>';
+    body.innerHTML = `
+      <div class="detail-summary">${statHtml}</div>
+      <div class="filters">${filterHtml}</div>
+      <div id="detail-cards">${cardsHtml}</div>`;
+
+    const cards = Array.from(body.querySelectorAll(".finding-card"));
+    body.querySelectorAll(".filter-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        body.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        cards.forEach((card) => {
+          const show = btn.dataset.filter === "all" || card.dataset.bucket === btn.dataset.filter;
+          if (show) card.removeAttribute("data-hidden"); else card.setAttribute("data-hidden", "");
+        });
+      });
+    });
+  } catch (e) {
+    body.innerHTML = `<p class="err" style="font-size:0.85rem">✕ 加载报告失败: ${e.message}</p>`;
   }
 }
 
