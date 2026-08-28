@@ -7,12 +7,18 @@ reportable output. A dedicated "batch-generate polished writeup" pass can
 be added later without touching this stage's inputs.
 """
 import html
+import re
+from collections import Counter
 from pathlib import Path
 
 from scanner.common import write_json
 
 SEVERITY_ORDER = {"ERROR": 0, "WARNING": 1, "INFO": 2}
 REACHABLE_ORDER = {"yes": 0, "uncertain": 1, "no": 2}
+
+# Matches the short quoted name Semgrep tends to put at the end of a CWE
+# description, e.g. "CWE-89: Improper Neutralization ... ('SQL Injection')".
+_CWE_SHORT_NAME = re.compile(r"\('([^']+)'\)\s*$")
 
 
 def _sort_key(item: dict):
@@ -39,6 +45,36 @@ def build_summary(verified: list[dict]) -> dict:
     return summary
 
 
+def _cwe_text(item: dict) -> str | None:
+    """A candidate's cwe field is a list of Semgrep's raw CWE strings in
+    production (e.g. ["CWE-89: ... ('SQL Injection')"]), but a plain string
+    in older fixtures/tests -- normalize both to one string."""
+    cwe = item.get("cwe")
+    if isinstance(cwe, list):
+        return cwe[0] if cwe else None
+    return cwe or None
+
+
+def vuln_type_label(item: dict) -> str:
+    """A short, human-readable vulnerability type for grouping/display --
+    prefers the quoted short name Semgrep puts at the end of a CWE string
+    ("SQL Injection"), falls back to the full CWE text, then to no-CWE."""
+    text = _cwe_text(item)
+    if not text:
+        return "Uncategorized"
+    match = _CWE_SHORT_NAME.search(text)
+    return match.group(1) if match else text
+
+
+def _sink_basename(item: dict) -> str:
+    return item["sink_file"].replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _facet_counts(verified: list[dict], key_fn) -> list[tuple[str, int]]:
+    counts = Counter(key_fn(item) for item in verified)
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def _card_html(item: dict) -> str:
     finding = item.get("finding") or {}
     reachable = finding.get("reachable", "uncertain")
@@ -52,18 +88,22 @@ def _card_html(item: dict) -> str:
     rule_ids = ", ".join(item.get("rule_ids", [item.get("rule_id", "")]))
     message = " / ".join(item.get("messages", [item.get("message", "")]))
     confidence = finding.get("confidence")
+    vuln_type = vuln_type_label(item)
+    severity = item.get("severity") or "UNKNOWN"
 
     return f"""
-    <details class="card" data-bucket="{filter_bucket}">
+    <details class="card" data-bucket="{filter_bucket}" data-type="{html.escape(vuln_type)}"
+              data-file="{html.escape(item["sink_file"])}" data-severity="{html.escape(severity)}">
       <summary>
         <span class="badge {badge_class}">{badge_label}</span>
-        <span class="severity">{html.escape(item.get("severity") or "")}</span>
+        <span class="severity">{html.escape(severity)}</span>
         <span class="location">{html.escape(item["sink_file"])}:{item["sink_line"]}</span>
         <span class="rule">{html.escape(rule_ids)}</span>
       </summary>
       <div class="card-body">
+        <p><strong>漏洞类型:</strong> {html.escape(vuln_type)}</p>
         <p><strong>规则说明:</strong> {html.escape(message)}</p>
-        <p><strong>CWE:</strong> {html.escape(str(item.get("cwe") or "-"))}
+        <p><strong>CWE:</strong> {html.escape(_cwe_text(item) or "-")}
            &nbsp;·&nbsp; <strong>Source:</strong> {html.escape(item["source_file"])}:{item["source_line"]}</p>
         {f'<p><strong>置信度:</strong> {html.escape(str(confidence))}</p>' if confidence is not None else ""}
         <p><strong>判断依据:</strong> {html.escape(finding.get("reasoning") or "")}</p>
@@ -74,11 +114,9 @@ def _card_html(item: dict) -> str:
 
 
 _STAT_CARDS = [
-    ("total", "候选总数", "stat-total"),
-    ("reachable", "可达 (yes)", "stat-yes"),
-    ("not_reachable", "不可达 (no)", "stat-no"),
-    ("uncertain", "不确定", "stat-uncertain"),
-    ("verifier_failed", "复核失败", "stat-failed"),
+    ("reachable", "漏洞总数", "stat-yes"),
+    ("not_reachable", "安全数量", "stat-no"),
+    ("needs_review", "需要人工复查", "stat-uncertain"),
 ]
 
 _FILTERS = [
@@ -90,19 +128,50 @@ _FILTERS = [
 ]
 
 
+def _facet_list_html(facet_name: str, counts: list[tuple[str, int]], total: int, label_fn=html.escape) -> str:
+    items = [f'<button class="facet-item active" data-facet="{facet_name}" data-value="">全部 ({total})</button>']
+    for value, count in counts:
+        items.append(
+            f'<button class="facet-item" data-facet="{facet_name}" data-value="{html.escape(value)}" title="{html.escape(value)}">'
+            f'{label_fn(value)} ({count})</button>'
+        )
+    return "\n".join(items)
+
+
 def render_html(verified: list[dict], project_name: str) -> str:
     summary = build_summary(verified)
     ordered = sorted(verified, key=_sort_key)
     cards = "\n".join(_card_html(item) for item in ordered)
+    total = len(verified)
 
+    stat_values = {**summary, "needs_review": summary["uncertain"] + summary["verifier_failed"]}
     stat_cards = "\n".join(
-        f'<div class="stat {cls}"><div class="stat-value">{summary[key]}</div><div class="stat-label">{label}</div></div>'
+        f'<div class="stat {cls}"><div class="stat-value">{stat_values[key]}</div><div class="stat-label">{label}</div></div>'
         for key, label, cls in _STAT_CARDS
     )
     filter_buttons = "\n".join(
         f'<button class="filter-btn{" active" if key == "all" else ""}" data-filter="{key}">{label}</button>'
         for key, label in _FILTERS
     )
+
+    type_counts = _facet_counts(verified, vuln_type_label)
+    file_counts = _facet_counts(verified, lambda i: i["sink_file"])
+    severity_counts = _facet_counts(verified, lambda i: i.get("severity") or "UNKNOWN")
+
+    facets_html = f"""
+    <div class="facet-col">
+      <h3>按漏洞类型</h3>
+      <div class="facet-list">{_facet_list_html("type", type_counts, total)}</div>
+    </div>
+    <div class="facet-col">
+      <h3>按文件</h3>
+      <div class="facet-list">{_facet_list_html("file", file_counts, total, label_fn=lambda v: html.escape(v.replace(chr(92), "/").rsplit("/", 1)[-1]))}</div>
+    </div>
+    <div class="facet-col">
+      <h3>按危险程度</h3>
+      <div class="facet-list">{_facet_list_html("severity", severity_counts, total)}</div>
+    </div>
+    """
 
     return f"""<!doctype html>
 <html lang="zh">
@@ -155,7 +224,7 @@ def render_html(verified: list[dict], project_name: str) -> str:
   * {{ box-sizing: border-box; }}
   body {{
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    max-width: 920px;
+    max-width: 1080px;
     margin: 0 auto;
     padding: 2.5rem 1.25rem 4rem;
     background: var(--bg);
@@ -163,21 +232,31 @@ def render_html(verified: list[dict], project_name: str) -> str:
     line-height: 1.5;
   }}
   h1 {{ font-size: 1.5rem; font-weight: 650; margin: 0 0 1.5rem; letter-spacing: -0.01em; }}
-  .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.7rem; margin-bottom: 1.5rem; }}
+  h3 {{ font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 0.5rem; }}
+  .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.7rem; margin-bottom: 1.5rem; }}
   .stat {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem 1rem; box-shadow: var(--shadow); }}
   .stat-value {{ font-size: 1.5rem; font-weight: 700; line-height: 1.2; }}
   .stat-label {{ font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }}
   .stat-yes .stat-value {{ color: var(--danger); }}
   .stat-no .stat-value {{ color: var(--success); }}
   .stat-uncertain .stat-value {{ color: var(--warning); }}
-  .stat-failed .stat-value {{ color: var(--text-faint); }}
-  .filters {{ display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }}
+  .filters {{ display: flex; gap: 0.4rem; margin-bottom: 1.2rem; flex-wrap: wrap; }}
   .filter-btn {{
     font-family: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
     padding: 0.35rem 0.8rem; border-radius: 999px; border: 1px solid var(--border);
     background: var(--surface); color: var(--text-muted);
   }}
   .filter-btn.active {{ background: var(--primary); border-color: var(--primary); color: #fff; }}
+  .facets {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }}
+  .facet-col {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; box-shadow: var(--shadow); }}
+  .facet-list {{ display: flex; flex-direction: column; gap: 0.15rem; max-height: 220px; overflow-y: auto; }}
+  .facet-item {{
+    font-family: inherit; font-size: 0.82rem; text-align: left; cursor: pointer;
+    padding: 0.35rem 0.5rem; border-radius: 6px; border: none; background: none; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }}
+  .facet-item:hover {{ background: var(--bg); }}
+  .facet-item.active {{ background: var(--primary-soft); color: var(--primary); font-weight: 600; }}
   .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.6rem; padding: 0.5rem 0.9rem; box-shadow: var(--shadow); }}
   .card[data-hidden] {{ display: none; }}
   .card summary {{ cursor: pointer; display: flex; gap: 0.6rem; align-items: center; padding: 0.5rem 0; list-style: none; flex-wrap: wrap; }}
@@ -203,26 +282,51 @@ def render_html(verified: list[dict], project_name: str) -> str:
   <div class="filters">
     {filter_buttons}
   </div>
+  <div class="facets">
+    {facets_html}
+  </div>
   <div id="card-list">
     {cards if cards.strip() else '<p class="empty-state">没有候选发现</p>'}
   </div>
   <p id="empty-filter" class="empty-state" style="display:none">没有匹配这个筛选条件的发现</p>
 <script>
   const cards = Array.from(document.querySelectorAll('.card'));
-  const buttons = Array.from(document.querySelectorAll('.filter-btn'));
+  const reachableButtons = Array.from(document.querySelectorAll('.filter-btn'));
+  const facetButtons = Array.from(document.querySelectorAll('.facet-item'));
   const emptyMsg = document.getElementById('empty-filter');
-  buttons.forEach((btn) => {{
+
+  const active = {{ reachable: 'all', type: '', file: '', severity: '' }};
+
+  function applyFilters() {{
+    let visible = 0;
+    cards.forEach((card) => {{
+      const matchesReachable = active.reachable === 'all' || card.dataset.bucket === active.reachable;
+      const matchesType = !active.type || card.dataset.type === active.type;
+      const matchesFile = !active.file || card.dataset.file === active.file;
+      const matchesSeverity = !active.severity || card.dataset.severity === active.severity;
+      const show = matchesReachable && matchesType && matchesFile && matchesSeverity;
+      if (show) {{ card.removeAttribute('data-hidden'); visible++; }}
+      else card.setAttribute('data-hidden', '');
+    }});
+    emptyMsg.style.display = visible === 0 ? 'block' : 'none';
+  }}
+
+  reachableButtons.forEach((btn) => {{
     btn.addEventListener('click', () => {{
-      buttons.forEach((b) => b.classList.remove('active'));
+      reachableButtons.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      const filter = btn.dataset.filter;
-      let visible = 0;
-      cards.forEach((card) => {{
-        const show = filter === 'all' || card.dataset.bucket === filter;
-        if (show) {{ card.removeAttribute('data-hidden'); visible++; }}
-        else card.setAttribute('data-hidden', '');
-      }});
-      emptyMsg.style.display = visible === 0 ? 'block' : 'none';
+      active.reachable = btn.dataset.filter;
+      applyFilters();
+    }});
+  }});
+
+  facetButtons.forEach((btn) => {{
+    btn.addEventListener('click', () => {{
+      const facet = btn.dataset.facet;
+      document.querySelectorAll(`.facet-item[data-facet="${{facet}}"]`).forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      active[facet] = btn.dataset.value;
+      applyFilters();
     }});
   }});
 </script>
