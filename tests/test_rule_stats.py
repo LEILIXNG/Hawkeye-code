@@ -5,15 +5,18 @@ import json
 
 from scanner.rule_stats import (
     aggregate,
+    file_clusters,
+    file_of,
     load_candidates,
     load_report_findings,
     noise_candidates,
+    noise_clusters,
     rule_ids_of,
 )
 
 
-def finding(rule_ids, reachable="yes", verified=True, reasoning="because"):
-    item = {"rule_ids": list(rule_ids), "rule_id": rule_ids[0]}
+def finding(rule_ids, reachable="yes", verified=True, reasoning="because", sink_file="A.java"):
+    item = {"rule_ids": list(rule_ids), "rule_id": rule_ids[0], "sink_file": sink_file}
     if verified:
         item["finding"] = {"reachable": reachable, "reasoning": reasoning}
     return item
@@ -85,11 +88,78 @@ class TestNoiseCandidates:
         rows = aggregate([finding(["a"], reachable="yes"), finding(["a"], reachable="no")])
         assert noise_candidates(rows) == []
 
+    def test_does_not_flag_a_rule_whose_only_verdicts_were_failures(self):
+        """Excluding a rule because nobody managed to judge it is backwards."""
+        rows = aggregate([
+            finding(["a"], reasoning="verifier_failed: no JSON"),
+            finding(["a"], reachable="uncertain"),
+        ])
+        assert noise_candidates(rows) == []
+
     def test_does_not_flag_a_rule_that_never_hit_alone(self):
         """Verdicts belong to the merged candidate, so a rule that only ever
         fired alongside another has no verdict that is really its own."""
         rows = aggregate([finding(["a", "b"], reachable="no")])
         assert [r["rule_id"] for r in noise_candidates(rows)] == []
+
+
+class TestFileClusters:
+    def test_splits_one_rule_across_the_files_it_fired_in(self):
+        rows = file_clusters([
+            finding(["a"], reachable="no", sink_file="Noisy.java"),
+            finding(["a"], reachable="no", sink_file="Noisy.java"),
+            finding(["a"], reachable="yes", sink_file="Real.java"),
+        ])
+        assert [(r["file"], r["hits"], r["no"], r["yes"]) for r in rows] == [
+            ("Noisy.java", 2, 2, 0),
+            ("Real.java", 1, 0, 1),
+        ]
+
+    def test_normalizes_windows_paths(self):
+        """The same project scanned on Windows and on Linux has to cluster
+        into one file, not two."""
+        rows = file_clusters([
+            finding(["a"], sink_file="src\\main\\A.java"),
+            finding(["a"], sink_file="src/main/A.java"),
+        ])
+        assert len(rows) == 1 and rows[0]["hits"] == 2
+        assert file_of({"sink_file": "src\\main\\A.java"}) == "src/main/A.java"
+
+    def test_skips_findings_with_no_sink_file(self):
+        assert file_clusters([finding(["a"], sink_file="")]) == []
+
+
+class TestNoiseClusters:
+    def test_file_only_when_the_rule_finds_real_bugs_elsewhere(self):
+        """The knife matters: excluding this rule outright would throw away
+        the Real.java finding, so only a path-scoped exclusion can help."""
+        clusters = noise_clusters([
+            finding(["a"], reachable="no", sink_file="Noisy.java"),
+            finding(["a"], reachable="yes", sink_file="Real.java"),
+        ])
+        assert [(c["file"], c["scope"]) for c in clusters] == [("Noisy.java", "file-only")]
+
+    def test_rule_wide_when_the_rule_never_found_anything(self):
+        clusters = noise_clusters([finding(["a"], reachable="no", sink_file="Noisy.java")])
+        assert [c["scope"] for c in clusters] == ["rule-wide"]
+
+    def test_does_not_flag_a_file_where_the_rule_also_found_a_real_bug(self):
+        """A rule whose noise and signal share a file is not separable by
+        any path glob -- reporting it would suggest an exclusion that
+        silently drops a true positive."""
+        assert noise_clusters([
+            finding(["a"], reachable="no", sink_file="Mixed.java"),
+            finding(["a"], reachable="yes", sink_file="Mixed.java"),
+        ]) == []
+
+    def test_ignores_pairs_that_were_never_actually_judged(self):
+        """failed/uncertain/unverified are absence of evidence, not evidence
+        that the matches are harmless."""
+        assert noise_clusters([
+            finding(["a"], reasoning="verifier_failed: no JSON", sink_file="A.java"),
+            finding(["b"], reachable="uncertain", sink_file="B.java"),
+            finding(["c"], verified=False, sink_file="C.java"),
+        ]) == []
 
 
 class TestLoaders:

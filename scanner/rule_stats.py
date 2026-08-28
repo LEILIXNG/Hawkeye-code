@@ -13,6 +13,15 @@ finding is counted once for *each* rule that hit it. Rules that mostly fire
 alongside others will therefore look busier than they are -- check
 `solo_hits` (hits where that rule was the only one to match) before acting
 on a rule with a low `yes` count.
+
+Per-rule totals are only half the picture. Noise is often shaped by *where*
+a rule fires rather than by the rule itself: a rule can be worthless in one
+file and the only thing catching a real bug in the next one, and a per-rule
+row averages those two into something that looks merely mediocre. The
+file_clusters/noise_clusters pair below splits the same findings by
+(rule, file) so that shape is visible, because it decides which knob to
+reach for -- ruleset.yml's `exclude_rules` throws the rule away everywhere,
+while `exclude_paths` only helps when the noisy files are separable by path.
 """
 import json
 from pathlib import Path
@@ -79,15 +88,16 @@ def aggregate(findings: list[dict]) -> list[dict]:
 
 
 def noise_candidates(rows: list[dict]) -> list[dict]:
-    """Rules that have fired on their own at least once, have been through
-    verification at least once, and have never produced a reachable
-    finding. The verified-at-least-once condition matters: a rule seen only
-    in unverified candidates has no evidence either way, and excluding it
-    would be guessing."""
-    return [
-        r for r in rows
-        if r["yes"] == 0 and r["solo_hits"] > 0 and (r["hits"] - r["unverified"]) > 0
-    ]
+    """Rules that have fired on their own at least once and have produced at
+    least one judged not-reachable finding, but never a reachable one.
+
+    The evidence bar is `no > 0` rather than "went through verification at
+    least once": a rule whose only trip through the verifier ended in
+    `verifier_failed`, or came back `uncertain`, has produced no evidence
+    that its matches are harmless -- it produced no answer. Counting those
+    as noise would propose excluding a rule precisely because nobody managed
+    to judge it."""
+    return [r for r in rows if r["yes"] == 0 and r["solo_hits"] > 0 and r["no"] > 0]
 
 
 def format_table(rows: list[dict]) -> str:
@@ -98,4 +108,75 @@ def format_table(rows: list[dict]) -> str:
             f"{r['hits']:>5} {r['solo_hits']:>5} {r['yes']:>4} {r['no']:>4} "
             f"{r['uncertain']:>4} {r['failed']:>4} {r['unverified']:>6} {r['reports']:>5}  {r['rule_id']}"
         )
+    return "\n".join(lines)
+
+
+def file_of(finding: dict) -> str:
+    """Sink file, normalized to forward slashes -- reports written on
+    Windows carry backslashes, and the same project scanned elsewhere would
+    otherwise cluster as two separate files."""
+    return (finding.get("sink_file") or "").replace("\\", "/")
+
+
+def file_clusters(findings: list[dict]) -> list[dict]:
+    """One row per (rule_id, file), same verdict buckets as aggregate()."""
+    stats: dict[tuple[str, str], dict] = {}
+    for finding in findings:
+        path = file_of(finding)
+        if not path:
+            continue
+        verdict = verdict_of(finding) if finding.get("finding") else "unverified"
+        for rule_id in rule_ids_of(finding):
+            row = stats.setdefault(
+                (rule_id, path),
+                {"rule_id": rule_id, "file": path, "hits": 0, **{v: 0 for v in VERDICTS}},
+            )
+            row["hits"] += 1
+            row[verdict] += 1
+    return sorted(stats.values(), key=lambda r: (-r["hits"], r["rule_id"], r["file"]))
+
+
+def noise_clusters(findings: list[dict]) -> list[dict]:
+    """(rule, file) pairs that came back not-reachable and never reachable,
+    each tagged with which exclusion knob actually fits.
+
+    `scope` is the point of this function:
+
+      - "rule-wide"  -- the rule has no reachable finding anywhere in the
+        corpus, so `exclude_rules` is on the table (still weigh solo_hits
+        and total volume via aggregate() first);
+      - "file-only"  -- the rule *does* find real bugs elsewhere, so
+        excluding it would throw those away. Only a path-scoped exclusion
+        can help, and only if the noisy files are separable by a glob that
+        is not specific to one target.
+    """
+    reachable_elsewhere = set()
+    for finding in findings:
+        if finding.get("finding") and verdict_of(finding) == "yes":
+            reachable_elsewhere.update(rule_ids_of(finding))
+
+    clusters = []
+    for row in file_clusters(findings):
+        # Same evidence bar as noise_candidates: at least one judged
+        # not-reachable, and never a reachable one. failed/uncertain-only
+        # pairs are unjudged, not harmless.
+        if row["yes"] or row["no"] == 0:
+            continue
+        clusters.append({**row, "scope": "file-only" if row["rule_id"] in reachable_elsewhere else "rule-wide"})
+    return clusters
+
+
+def format_cluster_table(rows: list[dict]) -> str:
+    scoped = any("scope" in r for r in rows)
+    scope_col = f"{'scope':<9}  " if scoped else ""
+    header = f"{'hits':>5} {'yes':>4} {'no':>4} {'unc':>4} {'fail':>4} {'unver':>6}  {scope_col}rule_id / file"
+    indent = " " * (38 + (11 if scoped else 0))
+    lines = [header, "-" * len(header)]
+    for r in rows:
+        scope = f"{r.get('scope', ''):<9}  " if scoped else ""
+        lines.append(
+            f"{r['hits']:>5} {r['yes']:>4} {r['no']:>4} {r['uncertain']:>4} {r['failed']:>4} "
+            f"{r['unverified']:>6}  {scope}{r['rule_id']}"
+        )
+        lines.append(indent + r["file"])
     return "\n".join(lines)
