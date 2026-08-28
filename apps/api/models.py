@@ -39,6 +39,11 @@ class Scan(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Which LLMConfig verified this scan's candidates -- null means whatever
+    # was active got used (pre-Phase-1.x scans, or the config was later
+    # deleted). Not a ForeignKey with ON DELETE behavior since deleting a
+    # config that past scans reference should keep the scan's history intact.
+    llm_config_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="scans")
     candidates: Mapped[list["Candidate"]] = relationship(back_populates="scan", cascade="all, delete-orphan")

@@ -19,12 +19,14 @@ class ScanOut(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error_message: str | None
+    llm_config_id: str | None
 
     model_config = {"from_attributes": True}
 
 
 class ScanCreate(BaseModel):
     project_id: str
+    llm_config_id: str | None = None
 
 
 class ReportSummary(BaseModel):

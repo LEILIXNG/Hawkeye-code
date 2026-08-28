@@ -24,8 +24,25 @@ load_dotenv(ROOT / ".env")
 async def lifespan(app: FastAPI):
     ensure_data_dir()
     Base.metadata.create_all(bind=engine)
+    _ensure_scans_llm_config_id_column()
     _seed_llm_config_from_env()
     yield
+
+
+def _ensure_scans_llm_config_id_column() -> None:
+    """create_all() only creates missing tables, it never alters existing
+    ones -- an existing local data/db.sqlite3 from before the per-scan LLM
+    config selector feature won't have this column, and every scan query
+    would start failing with 'no such column: scans.llm_config_id'. Add it
+    by hand if it's missing; no-op on a freshly created table where the ORM
+    metadata already included it."""
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(scans)"))}
+        if "llm_config_id" not in columns:
+            conn.execute(text("ALTER TABLE scans ADD COLUMN llm_config_id VARCHAR"))
+            conn.commit()
 
 
 app = FastAPI(title="sast-local API", lifespan=lifespan)

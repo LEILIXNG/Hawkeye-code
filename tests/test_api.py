@@ -88,6 +88,55 @@ class TestProjectsAndScans:
         resp = client.post("/scans", json={"project_id": project_id})
         assert resp.status_code == 400
 
+    def test_create_scan_uses_the_explicitly_selected_llm_config(self, client, monkeypatch):
+        # POST /scans's BackgroundTasks run synchronously under TestClient,
+        # so stub out the pipeline itself (not just the LLM call) -- letting
+        # the real one run would shell out to semgrep for no reason this
+        # test cares about, on top of the no-real-LLM-calls rule.
+        from apps.api import database as db_module
+        from apps.api.routers import scans as scans_router
+        from scanner.render import render as real_render
+
+        def fake_run_pipeline(zip_path, workspace_dir, report_dir, project_name, provider, model, on_status=lambda s: None):
+            on_status("done")
+            return real_render([], project_name, report_dir)
+
+        monkeypatch.setattr(scans_router, "run_pipeline", fake_run_pipeline)
+        # scans.py did `from apps.api.database import SessionLocal`, so it
+        # captured whatever SessionLocal was at first import -- the
+        # `client` fixture's monkeypatch of db_module.SessionLocal doesn't
+        # reach that already-bound name. Patch scans.py's own copy too, or
+        # the background task's db = SessionLocal() call opens a session
+        # against a stale engine and can't find this test's scan row.
+        monkeypatch.setattr(scans_router, "SessionLocal", db_module.SessionLocal)
+
+        glm = client.post("/settings/llm", json={"name": "glm", "api_key": "sk-glm", "verify_model": "glm-4-flash"}).json()
+        # Creating this second config auto-activates it, so glm above is
+        # now the *inactive* one -- exactly the case worth covering, since
+        # "pick a non-active saved config for just this scan" is the point
+        # of this feature.
+        client.post("/settings/llm", json={"name": "deepseek", "api_key": "sk-ds", "verify_model": "deepseek-chat"})
+
+        upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
+        project_id = upload.json()["id"]
+
+        resp = client.post("/scans", json={"project_id": project_id, "llm_config_id": glm["id"]})
+        assert resp.status_code == 200
+        scan_id = resp.json()["id"]
+        assert resp.json()["llm_config_id"] == glm["id"]
+
+        # Still pinned to glm after the (stubbed) pipeline finishes, not the
+        # config that's active *now*.
+        final = client.get(f"/scans/{scan_id}").json()
+        assert final["llm_config_id"] == glm["id"]
+        assert final["status"] == "done"
+
+    def test_create_scan_with_unknown_llm_config_id_is_404(self, client):
+        upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
+        project_id = upload.json()["id"]
+        resp = client.post("/scans", json={"project_id": project_id, "llm_config_id": "does-not-exist"})
+        assert resp.status_code == 404
+
     def test_report_not_ready_before_scan_completes(self, client):
         upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
         project_id = upload.json()["id"]

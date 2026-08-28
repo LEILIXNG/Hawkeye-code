@@ -203,6 +203,8 @@
       <p class="dropzone-text"><span data-i18n="dropzone.prefix"></span><span class="link" data-i18n="dropzone.link"></span></p>
       <p class="dropzone-filename" id="dropzone-filename"></p>
     </div>
+    <label data-i18n="upload.modelLabel"></label>
+    <select id="scan-llm-select"></select>
     <div class="row">
       <button id="upload-btn" class="primary" data-i18n="upload.button"></button>
     </div>
@@ -280,7 +282,7 @@ const I18N = {
     langToggle: "English",
     section1: { heading: "上传 zip 并扫描" },
     dropzone: { prefix: "拖拽 zip 文件到这里，或 ", link: "点击选择" },
-    upload: { button: "上传并开始扫描" },
+    upload: { button: "上传并开始扫描", modelLabel: "扫描用的模型", useActive: "使用当前生效配置", noConfigs: "还没有保存 LLM 配置，先去下面第 3 步添加" },
     report: { link: "查看报告 →" },
     section2: { heading: "历史扫描" },
     history: {
@@ -327,7 +329,7 @@ const I18N = {
     langToggle: "中文",
     section1: { heading: "Upload a zip & scan" },
     dropzone: { prefix: "Drag a zip file here, or ", link: "click to browse" },
-    upload: { button: "Upload & start scan" },
+    upload: { button: "Upload & start scan", modelLabel: "Model for this scan", useActive: "Use the currently active config", noConfigs: "No saved LLM configs yet — add one in step 3 below" },
     report: { link: "View report →" },
     section2: { heading: "Scan history" },
     history: {
@@ -476,11 +478,37 @@ async function loadActiveConfig() {
   } catch (e) { /* ignore */ }
 }
 
+function renderScanLlmSelect(configs) {
+  const select = $("scan-llm-select");
+  const previousValue = select.value;
+  select.innerHTML = "";
+  if (configs.length === 0) {
+    select.innerHTML = `<option value="">${t("upload.noConfigs")}</option>`;
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  const activeOption = document.createElement("option");
+  activeOption.value = "";
+  activeOption.textContent = t("upload.useActive");
+  select.appendChild(activeOption);
+  for (const cfg of configs) {
+    const opt = document.createElement("option");
+    opt.value = cfg.id;
+    opt.textContent = `${cfg.name} (${cfg.verify_model})`;
+    select.appendChild(opt);
+  }
+  // Keep whatever the user had picked across a language switch / list refresh,
+  // as long as that config still exists.
+  if ([...select.options].some((o) => o.value === previousValue)) select.value = previousValue;
+}
+
 async function loadConfigList() {
   const msg = $("settings-msg");
   const tbody = document.querySelector("#config-table tbody");
   tbody.innerHTML = "";
   const configs = await api("/settings/llm/list");
+  renderScanLlmSelect(configs);
   if (configs.length === 0) {
     tbody.innerHTML = `<tr class="empty-row"><td colspan="5">${t("settings.empty")}</td></tr>`;
     return;
@@ -587,7 +615,7 @@ $("upload-btn").addEventListener("click", async () => {
     const scan = await api("/scans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_id: project.id }),
+      body: JSON.stringify({ project_id: project.id, llm_config_id: $("scan-llm-select").value || null }),
     });
 
     await pollScan(scan.id, statusMsg, reportLink);

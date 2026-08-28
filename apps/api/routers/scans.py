@@ -18,19 +18,31 @@ def _active_llm_config(db: Session) -> models.LLMConfig | None:
     return db.query(models.LLMConfig).filter_by(is_active=True).first()
 
 
+def _resolve_llm_config(db: Session, llm_config_id: str | None) -> models.LLMConfig | None:
+    """None means "use whatever's active" (the pre-existing default); a
+    specific id means the user picked a saved config for this one scan,
+    overriding whatever happens to be active."""
+    if llm_config_id is None:
+        return _active_llm_config(db)
+    llm_config = db.get(models.LLMConfig, llm_config_id)
+    if llm_config is None:
+        raise HTTPException(404, "llm config not found")
+    return llm_config
+
+
 @router.post("/scans", response_model=schemas.ScanOut)
 def create_scan(payload: schemas.ScanCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     project = db.get(models.Project, payload.project_id)
     if project is None:
         raise HTTPException(404, "project not found")
 
-    llm_config = _active_llm_config(db)
+    llm_config = _resolve_llm_config(db, payload.llm_config_id)
     try:
         provider_and_model_from_config(llm_config)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    scan = models.Scan(project_id=project.id, status="queued")
+    scan = models.Scan(project_id=project.id, status="queued", llm_config_id=llm_config.id if llm_config else None)
     db.add(scan)
     db.commit()
     db.refresh(scan)
@@ -46,7 +58,10 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         scan.started_at = datetime.now(timezone.utc)
         db.commit()
 
-        llm_config = _active_llm_config(db)
+        # scan.llm_config_id was pinned at creation time so the scan keeps
+        # using the config the user picked even if the active/saved configs
+        # change while this scan is queued or running.
+        llm_config = db.get(models.LLMConfig, scan.llm_config_id) if scan.llm_config_id else _active_llm_config(db)
         provider, model = provider_and_model_from_config(llm_config)
 
         def on_status(status: str) -> None:
