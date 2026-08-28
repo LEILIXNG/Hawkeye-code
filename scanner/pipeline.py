@@ -15,6 +15,7 @@ from scanner.common import (
     load_excluded_paths,
     load_excluded_rules,
 )
+from scanner.callgraph import index_workspace
 from scanner.core import build_context, build_prompt, dedup, normalize, run_semgrep
 from scanner.ingest import safe_extract
 from scanner.render import render
@@ -58,11 +59,14 @@ def run_pipeline(
 
     on_status("verifying")
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
+    # Built once per scan: indexing is a full parse of every .java file, and
+    # doing it per candidate would repeat that work for every finding.
+    index = index_workspace(workspace_dir)
     verified = []
     try:
         for i, candidate in enumerate(candidates, 1):
             print(f"[pipeline] verifying {i}/{len(candidates)}", file=sys.stderr)
-            code_context = build_context(workspace_dir, candidate)
+            code_context = build_context(workspace_dir, candidate, index)
             prompt = build_prompt(template, candidate, code_context)
             finding = call_llm(provider, model, prompt)
             verified.append({**candidate, "finding": finding})

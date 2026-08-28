@@ -16,6 +16,16 @@ from pathlib import Path
 
 from scanner.common import sha256
 
+# Re-exported so `from scanner.core import build_context` keeps working for
+# pipeline.py, scripts/02_verify.py and the tests that load them by path.
+from scanner.context import (  # noqa: F401
+    CONTEXT_WINDOW,
+    build_caller_context,
+    build_context,
+    build_prompt,
+    read_window,
+)
+
 # Windows refuses to open a path of 260 characters or more unless the
 # process opts into long paths, and semgrep does not: it reports such files
 # as neither scanned, skipped nor errored -- they simply are not there.
@@ -195,45 +205,6 @@ def dedup(candidates: list[dict]) -> list[dict]:
             merged[key]["rule_ids"].append(c["rule_id"])
             merged[key]["messages"].append(c["message"])
     return list(merged.values())
-
-
-CONTEXT_WINDOW = 15  # lines of code above/below each location to include
-
-
-def read_window(target: Path, rel_path: str, line: int, window: int) -> str:
-    full_path = target / rel_path
-    if not full_path.exists() or line is None:
-        return f"(file not found: {rel_path})"
-    lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    start = max(0, line - 1 - window)
-    end = min(len(lines), line - 1 + window + 1)
-    numbered = [f"{i + 1:>5} | {lines[i]}" for i in range(start, end)]
-    return "\n".join(numbered)
-
-
-def build_context(target: Path, candidate: dict) -> str:
-    sink_block = read_window(target, candidate["sink_file"], candidate["sink_line"], CONTEXT_WINDOW)
-    if candidate["source_file"] == candidate["sink_file"] and candidate["source_line"] == candidate["sink_line"]:
-        return f"### {candidate['sink_file']} (source == sink)\n{sink_block}"
-
-    source_block = read_window(target, candidate["source_file"], candidate["source_line"], CONTEXT_WINDOW)
-    return (
-        f"### Source: {candidate['source_file']}\n{source_block}\n\n"
-        f"### Sink: {candidate['sink_file']}\n{sink_block}"
-    )
-
-
-def build_prompt(template: str, candidate: dict, code_context: str) -> str:
-    return template.format(
-        rule_ids=", ".join(candidate.get("rule_ids", [candidate.get("rule_id", "")])),
-        message=" / ".join(candidate.get("messages", [candidate.get("message", "")])),
-        cwe=candidate.get("cwe"),
-        source_file=candidate["source_file"],
-        source_line=candidate["source_line"],
-        sink_file=candidate["sink_file"],
-        sink_line=candidate["sink_line"],
-        code_context=code_context,
-    )
 
 
 def parse_llm_json(raw_text: str) -> dict:

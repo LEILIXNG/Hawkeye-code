@@ -29,6 +29,7 @@ from pathlib import Path
 
 from common import CANDIDATES_PATH, PROMPTS_DIR, VERIFIED_PATH, ensure_data_dir, load_json, write_json
 from llm_gateway.config import provider_and_model_from_config
+from scanner.callgraph import index_workspace
 from scanner.core import build_context, build_prompt  # noqa: F401
 from scanner.verify import call_llm  # noqa: F401
 
@@ -54,11 +55,14 @@ def main():
         candidates = candidates[: args.limit]
 
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
+    print("[verify] indexing the call graph", file=sys.stderr)
+    index = index_workspace(target)
+    print(f"[verify] {len(index.methods)} methods, {len(index.calls)} call sites", file=sys.stderr)
 
     verified = []
     for i, candidate in enumerate(candidates, 1):
         print(f"[verify] {i}/{len(candidates)} {candidate['sink_file']}:{candidate['sink_line']}", file=sys.stderr)
-        code_context = build_context(target, candidate)
+        code_context = build_context(target, candidate, index)
         prompt = build_prompt(template, candidate, code_context)
         finding = call_llm(provider, model, prompt)
         verified.append({**candidate, "finding": finding})
