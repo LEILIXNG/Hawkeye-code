@@ -10,8 +10,10 @@ tolerance is robust to that without caring which root was used.
 
 Usage:
     python scripts/03_eval.py
+    python scripts/03_eval.py --verified data/verified_other.json
 """
-from pathlib import PureWindowsPath
+import argparse
+from pathlib import Path, PureWindowsPath
 
 from common import LABELS_PATH, VERIFIED_PATH, load_json
 
@@ -33,8 +35,13 @@ def find_match(label: dict, verified: list[dict]):
 
 
 def main():
-    labels = load_json(LABELS_PATH)
-    verified = load_json(VERIFIED_PATH)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--verified", default=str(VERIFIED_PATH), help="Verifier output to score")
+    parser.add_argument("--labels", default=str(LABELS_PATH), help="Hand-labeled ground truth")
+    args = parser.parse_args()
+
+    labels = load_json(Path(args.labels))
+    verified = load_json(Path(args.verified))
 
     total = 0
     matched = 0

@@ -52,5 +52,17 @@
     "line": 135,
     "expected_reachable": "no",
     "note": "String.format into CREATE USER statement, but the password comes from application.properties, not user input -- known false positive"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/xxe/XXEVulnerability.java",
+    "line": 72,
+    "expected_reachable": "yes",
+    "note": "XXE LEVEL_1, JAXB unmarshal straight off request.getInputStream() with no hardening, textbook XXE"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/xxe/XXEVulnerability.java",
+    "line": 150,
+    "expected_reachable": "yes",
+    "note": "XXE LEVEL_2, only external-general-entities disabled; parameter entities still resolve, so still exploitable"
   }
 ]

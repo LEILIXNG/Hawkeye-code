@@ -1,0 +1,79 @@
+# XXE through JAXB unmarshalling, and through globally re-enabling external DTDs.
+#
+# Measured gap, not a guess: the vendored ruleset mounts 7 XXE rules
+# (documentbuilderfactory-*, xmlinputfactory-*, saxparserfactory-*) and every
+# one of them matches a *parser factory* being misconfigured. VulnerableApp's
+# XXEVulnerability.java LEVEL_1 never touches a factory -- it hands the raw
+# request stream to a JAXB Unmarshaller, which builds its own parser with
+# external entities enabled -- so the whole category scanned clean while
+# holding a textbook XXE. See MEMORY.md's rule-coverage note.
+#
+# Plain pattern rules, not `mode: taint`, for the same reason as
+# command-injection.yml: Semgrep's job here is to surface candidates and the
+# LLM verify stage decides reachability (docs/framework.md sections 3-4).
+rules:
+  - id: jaxb-unmarshal-of-request-stream
+    languages: [java]
+    severity: ERROR
+    message: >
+      A JAXB Unmarshaller is reading XML straight from the HTTP request. A
+      plain Unmarshaller resolves external entities, so a request carrying a
+      DOCTYPE with a SYSTEM entity can read local files or make the server
+      issue outbound requests. Supply a SAXSource built from a SAXParserFactory
+      with disallow-doctype-decl set instead of passing the stream directly.
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp:
+        - "A05:2021 - Security Misconfiguration"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-either:
+          - pattern: $U.unmarshal($REQ.getInputStream())
+          - pattern: $U.unmarshal($REQ.getReader())
+          - pattern: |
+              $IN = $REQ.getInputStream();
+              ...
+              $U.unmarshal($IN);
+          - pattern: |
+              $IN = $REQ.getReader();
+              ...
+              $U.unmarshal($IN);
+      # The hardened levels wrap the stream in a SAXSource built from a
+      # configured factory; that shape is the fix, not the finding.
+      - pattern-not: $U.unmarshal(new SAXSource(...))
+
+  - id: saxparserfactory-general-entities-only
+    languages: [java]
+    severity: ERROR
+    message: >
+      This SAXParserFactory disables external general entities but says
+      nothing about parameter entities or DOCTYPE declarations. Parameter
+      entities alone are enough to read local files and exfiltrate them
+      through an outbound request, so this hardening does not close XXE.
+      Set `http://apache.org/xml/features/disallow-doctype-decl` to true, or
+      disable external-parameter-entities as well.
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp:
+        - "A05:2021 - Security Misconfiguration"
+      source: sast-local/rules/custom
+    patterns:
+      # Anchored on the setFeature call itself rather than on a
+      # creation-then-configure sequence: pattern-not subtracts by matched
+      # range, so a sequence pattern and its negation cover different ranges
+      # and the negation silently removes nothing.
+      - pattern: $F.setFeature("http://xml.org/sax/features/external-general-entities", false);
+      - pattern-not-inside: |
+          $T $M(...) {
+            ...
+            $F.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            ...
+          }
+      - pattern-not-inside: |
+          $T $M(...) {
+            ...
+            $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            ...
+          }
