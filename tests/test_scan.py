@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from scanner.core import long_paths, run_semgrep
+from scanner.core import dedup_copies, long_paths, run_semgrep
 
 
 def make_result(check_id="rule.id", path="C:\\repo\\A.java", start_line=51,
@@ -110,6 +110,72 @@ class TestDedup:
         assert len(deduped) == 2
         source_lines = {c["source_line"] for c in deduped}
         assert source_lines == {68, 83}
+
+
+class TestDedupCopies:
+    """dedup_copies() reads the files, so these write real ones. The shape
+    under test is the one measured on the vmscode corpus: the same module
+    shipped twice, renamed into a different package."""
+
+    COPY = """package {pkg};
+
+import java.io.File;
+import java.io.FileOutputStream;
+
+public class TemplateUtil {{
+    public static void write(String filePath, String fileName) throws Exception {{
+        new FileOutputStream(filePath + File.separator + fileName);
+    }}
+}}
+"""
+
+    def write_copy(self, root, rel, pkg):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.COPY.format(pkg=pkg), encoding="utf-8")
+        return rel
+
+    def candidate(self, rel, line=7, rule="rules.custom.java.file-path-with-nonconstant-segment"):
+        return {"source_file": rel, "source_line": line, "sink_file": rel, "sink_line": line,
+                "rule_ids": [rule], "messages": ["m"]}
+
+    def test_merges_the_same_file_shipped_under_two_packages(self, tmp_path):
+        a = self.write_copy(tmp_path, "modA/src/main/java/com/x/asm/TemplateUtil.java", "com.x.asm")
+        b = self.write_copy(tmp_path, "modB/src/main/java/com/x/TemplateUtil.java", "com.x")
+        merged = dedup_copies([self.candidate(a), self.candidate(b)], tmp_path)
+        assert len(merged) == 1
+        assert merged[0]["duplicate_locations"] == [b]
+
+    def test_keeps_two_files_that_only_share_a_name(self, tmp_path):
+        a = self.write_copy(tmp_path, "modA/src/main/java/com/x/TemplateUtil.java", "com.x")
+        b = tmp_path / "modB/src/main/java/com/y/TemplateUtil.java"
+        b.parent.mkdir(parents=True, exist_ok=True)
+        b.write_text(self.COPY.format(pkg="com.y").replace("filePath", "safeRoot"), encoding="utf-8")
+        merged = dedup_copies([self.candidate(a), self.candidate("modB/src/main/java/com/y/TemplateUtil.java")], tmp_path)
+        assert len(merged) == 2
+
+    def test_keeps_two_sinks_in_one_file_separate(self, tmp_path):
+        a = self.write_copy(tmp_path, "modA/src/main/java/com/x/TemplateUtil.java", "com.x")
+        merged = dedup_copies([self.candidate(a, line=7), self.candidate(a, line=8)], tmp_path)
+        assert len(merged) == 2
+
+    def test_keeps_copies_that_different_rules_hit(self, tmp_path):
+        a = self.write_copy(tmp_path, "modA/src/main/java/com/x/asm/TemplateUtil.java", "com.x.asm")
+        b = self.write_copy(tmp_path, "modB/src/main/java/com/x/TemplateUtil.java", "com.x")
+        merged = dedup_copies([self.candidate(a, rule="rule.a"), self.candidate(b, rule="rule.b")], tmp_path)
+        assert len(merged) == 2
+
+    def test_an_unreadable_file_never_merges(self, tmp_path):
+        """Failing to read a file must not be mistaken for two files being
+        equal -- that would silently drop a finding nobody looked at."""
+        merged = dedup_copies(
+            [self.candidate("gone/A.java"), self.candidate("also-gone/A.java")], tmp_path)
+        assert len(merged) == 2
+
+    def test_leaves_a_single_candidate_untouched_with_an_empty_list(self, tmp_path):
+        a = self.write_copy(tmp_path, "modA/src/main/java/com/x/TemplateUtil.java", "com.x")
+        merged = dedup_copies([self.candidate(a)], tmp_path)
+        assert merged[0]["duplicate_locations"] == []
 
 
 class TestRelpath:

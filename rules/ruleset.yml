@@ -41,6 +41,15 @@
 # findings came back not-reachable" is evidence, not proof -- prefer
 # excluding rules whose matches are structurally irrelevant to this tool's
 # scope (see docs/framework.md) over ones the model merely disagreed with.
+#
+# Measured 2026-08-29 over two projects (126 verified candidates: 72 from a
+# real 13-module Maven app, 54 from VulnerableApp) and nothing qualified.
+# Every rule that never produced a reachable finding fired 1-3 times, which
+# is below the level where excluding it saves anything; the one high-volume
+# candidate, unrestricted-request-mapping (15 hits, 14 not-reachable), has a
+# reachable finding it is the *only* rule to hit, so excluding it would trade
+# noise for a false negative. Re-run scripts/rule_stats.py --noise-clusters
+# on the next new corpus rather than re-deriving this.
 exclude_rules: []
 
 # Paths never worth scanning, whatever the target is. Each entry is passed

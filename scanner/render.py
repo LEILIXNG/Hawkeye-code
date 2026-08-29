@@ -113,11 +113,23 @@ def _card_html(item: dict) -> str:
         <p><strong data-i18n="card.cwe"></strong> {html.escape(_cwe_text(item) or "-")}
            &nbsp;·&nbsp; <strong data-i18n="card.source"></strong> {html.escape(item["source_file"])}:{item["source_line"]}</p>
         {f'<p><strong data-i18n="card.confidence"></strong> {html.escape(str(confidence))}</p>' if confidence is not None else ""}
+        {_duplicates_html(item)}
         <p><strong data-i18n="card.reasoning"></strong> {html.escape(finding.get("reasoning") or "")}</p>
         {f'<p><strong data-i18n="card.exploit"></strong> {html.escape(finding.get("exploit_scenario") or "")}</p>' if finding.get("exploit_scenario") else ""}
       </div>
     </details>
     """
+
+
+def _duplicates_html(item: dict) -> str:
+    """The other paths carrying this exact code, when dedup_copies() merged
+    a copied module. Verified once, but the reader still has to be told
+    every place it lives, or the merge reads as a missing finding."""
+    paths = item.get("duplicate_locations") or []
+    if not paths:
+        return ""
+    joined = ", ".join(html.escape(p) for p in paths)
+    return f'<p><strong data-i18n="card.duplicates"></strong> {joined}</p>'
 
 
 # (summary key, i18n key, css class) and (filter bucket, i18n key) -- the

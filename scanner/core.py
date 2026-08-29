@@ -207,6 +207,69 @@ def dedup(candidates: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
+# Lines a copied-and-renamed Java module differs by, and the only ones the
+# copy fingerprint is allowed to ignore. Everything else has to match byte
+# for byte, so two files that merely share a name never collapse.
+_COPY_IGNORED_PREFIXES = ("package ", "import ")
+
+
+def _copy_fingerprint(target: Path, rel_path: str, cache: dict[str, str]) -> str:
+    if rel_path not in cache:
+        try:
+            text = (Path(target) / rel_path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            # Unreadable: fall back to the path itself so this candidate can
+            # only ever match itself. Failing to read a file must not merge
+            # two findings that might be unrelated.
+            cache[rel_path] = f"path:{rel_path}"
+        else:
+            body = [
+                line.rstrip()
+                for line in text.splitlines()
+                if not line.lstrip().startswith(_COPY_IGNORED_PREFIXES)
+            ]
+            cache[rel_path] = sha256("\n".join(body))
+    return cache[rel_path]
+
+
+def dedup_copies(candidates: list[dict], target: Path) -> list[dict]:
+    """Merge candidates that are the same code shipped at two paths.
+
+    Real Java repos carry the same module twice -- a service and its
+    "-platform" fork, a vendored copy, a module renamed into a different
+    package. Semgrep reports both, and dedup() above cannot merge them
+    because its key is built from paths. The verify stage then spends two
+    LLM calls on identical code and, at this project's measured ~16%
+    run-to-run flip rate, frequently returns two different verdicts for it:
+    on the vmscode corpus 8 of 72 candidates were copies, and 4 of those 8
+    pairs disagreed with themselves. A report that judges the same lines
+    both reachable and not reachable is worse than one that judges them
+    once.
+
+    The surviving candidate keeps the other paths in `duplicate_locations`
+    so the report can still point at every copy -- this drops a verify call,
+    never a location.
+
+    Line numbers are part of the key, so two copies whose import blocks are
+    different lengths simply will not collapse. That is deliberate: the
+    fingerprint proves the files are the same, and the line number proves
+    the finding is at the same place in them.
+    """
+    fingerprints: dict[str, str] = {}
+    merged: dict[tuple, dict] = {}
+    for c in candidates:
+        key = (
+            _copy_fingerprint(target, c["source_file"], fingerprints), c["source_line"],
+            _copy_fingerprint(target, c["sink_file"], fingerprints), c["sink_line"],
+            tuple(sorted(c.get("rule_ids") or [c.get("rule_id")])),
+        )
+        if key not in merged:
+            merged[key] = {**c, "duplicate_locations": []}
+        else:
+            merged[key]["duplicate_locations"].append(c["sink_file"])
+    return list(merged.values())
+
+
 def parse_llm_json(raw_text: str) -> dict:
     text = raw_text.strip()
     if text.startswith("```"):

@@ -21,7 +21,7 @@ from common import (
     load_excluded_rules,
     write_json,
 )
-from scanner.core import dedup, extract_source_location, normalize, relpath, run_semgrep  # noqa: F401
+from scanner.core import dedup, dedup_copies, extract_source_location, normalize, relpath, run_semgrep  # noqa: F401
 
 DEFAULT_CONFIGS = load_default_configs()
 EXCLUDED_RULES = load_excluded_rules()
@@ -44,7 +44,7 @@ def main():
 
     raw = run_semgrep(target, configs, EXCLUDED_RULES, EXCLUDED_PATHS)
     candidates = normalize(raw, target)
-    deduped = dedup(candidates)
+    deduped = dedup_copies(dedup(candidates), target)
 
     write_json(Path(args.out), deduped)
     print(f"[scan] {len(candidates)} raw findings -> {len(deduped)} deduped candidates")

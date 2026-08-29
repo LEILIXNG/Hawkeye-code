@@ -16,7 +16,7 @@ from scanner.common import (
     load_excluded_rules,
 )
 from scanner.callgraph import index_workspace
-from scanner.core import build_context, build_prompt, dedup, normalize, run_semgrep
+from scanner.core import build_context, build_prompt, dedup, dedup_copies, normalize, run_semgrep
 from scanner.ingest import safe_extract
 from scanner.render import render
 from scanner.verify import call_llm
@@ -53,7 +53,7 @@ def run_pipeline(
     on_status("scanning")
     try:
         raw = run_semgrep(workspace_dir, DEFAULT_CONFIGS, EXCLUDED_RULES, EXCLUDED_PATHS)
-        candidates = dedup(normalize(raw, workspace_dir))
+        candidates = dedup_copies(dedup(normalize(raw, workspace_dir)), workspace_dir)
     except Exception as e:
         raise PipelineError(f"scan failed: {e}") from e
 
