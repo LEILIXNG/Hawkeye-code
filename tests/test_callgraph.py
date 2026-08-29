@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from scanner.callgraph import (
+    ANY_ARITY,
     Index,
     callers_of,
     enclosing_method,
@@ -307,3 +308,116 @@ class TestEntryPointStrength:
         assert method.entry_reason and not method.entry_definitive
 
         assert trace_to_entry_points(idx, "S.java", method.start_line + 1) == [[]]
+
+
+class TestMyBatisMappers:
+    """A mapper XML is the one place in this module where the link is
+    resolved rather than guessed: <mapper namespace> names the interface and
+    <select id> names the method, so these tests pin that the span, the
+    arity lookup and the namespace requirement all hold."""
+
+    MAPPER_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.x.dao.LogMapper">
+  <sql id="cols">id, detail</sql>
+  <select id="listLogs" resultType="Log">
+    select <include refid="cols"/> from log
+    <if test="sorts != null">
+      order by ${sorts}
+    </if>
+  </select>
+  <update id="touch">update log set seen = 1</update>
+</mapper>
+"""
+
+    INTERFACE_JAVA = """
+        package com.x.dao;
+        public interface LogMapper {
+            List<Log> listLogs(LogQuery query);
+            void touch();
+        }
+    """
+
+    CONTROLLER_JAVA = """
+        package com.x.web;
+        class LogController {
+            @GetMapping("/logs")
+            public Object logs(@RequestParam String sorts) { return service.find(sorts); }
+        }
+        class LogService {
+            Object find(String sorts) { return logMapper.listLogs(new LogQuery(sorts)); }
+        }
+    """
+
+    def mapper_workspace(self, tmp_path, **overrides):
+        files = {
+            "src/main/resources/mapper/LogMapper.xml": self.MAPPER_XML,
+            "src/main/java/com/x/dao/LogMapper.java": self.INTERFACE_JAVA,
+            "src/main/java/com/x/web/LogController.java": self.CONTROLLER_JAVA,
+        }
+        files.update(overrides)
+        return workspace(tmp_path, files)
+
+    def test_a_statement_becomes_a_method_spanning_its_tag(self, tmp_path):
+        idx = index_workspace(self.mapper_workspace(tmp_path))
+        statement = next(m for m in idx.methods if m.file.endswith("LogMapper.xml") and m.name == "listLogs")
+        assert statement.start_line == 6 and statement.end_line == 11
+
+    def test_arity_comes_from_the_interface_the_namespace_names(self, tmp_path):
+        idx = index_workspace(self.mapper_workspace(tmp_path))
+        by_name = {m.name: m for m in idx.methods if m.file.endswith(".xml")}
+        assert by_name["listLogs"].arity == 1
+        assert by_name["touch"].arity == 0
+
+    def test_a_sink_in_the_xml_traces_back_to_the_request_handler(self, tmp_path):
+        """The whole point: the ${sorts} line inside <select> is 25 of the 64
+        vmscode candidates, and before this it reported no entry point."""
+        root = self.mapper_workspace(tmp_path)
+        chains = trace_to_entry_points(index_workspace(root), "src/main/resources/mapper/LogMapper.xml", 9)
+        assert chains
+        assert chains[0][-1].caller.name == "logs"
+
+    def test_sql_fragments_are_not_statements(self, tmp_path):
+        idx = index_workspace(self.mapper_workspace(tmp_path))
+        assert not [m for m in idx.methods if m.name == "cols"]
+
+    def test_xml_without_a_mapper_namespace_is_ignored(self, tmp_path):
+        """Otherwise any config file holding <select id="..."> would join the
+        call graph and start answering questions about reachability."""
+        idx = index_workspace(workspace(tmp_path, {
+            "conf/menu.xml": '<?xml version="1.0"?><menu><select id="listLogs">x</select></menu>',
+        }))
+        assert idx.methods == []
+
+    def test_overloads_fall_back_to_matching_any_arity(self, tmp_path):
+        """One node per statement, not one per overload: registering both
+        would make trace_to_entry_points pick one and lose the other's
+        callers."""
+        root = self.mapper_workspace(tmp_path, **{"src/main/java/com/x/dao/LogMapper.java": """
+            package com.x.dao;
+            public interface LogMapper {
+                List<Log> listLogs(LogQuery query);
+                List<Log> listLogs(LogQuery query, Page page);
+            }
+        """})
+        idx = index_workspace(root)
+        statement = next(m for m in idx.methods if m.file.endswith(".xml") and m.name == "listLogs")
+        assert statement.arity == ANY_ARITY
+        assert {c.arity for c in callers_of(idx, statement)} >= {1}
+
+    def test_an_unresolvable_namespace_still_matches_callers(self, tmp_path):
+        root = workspace(tmp_path, {
+            "src/main/resources/mapper/LogMapper.xml": self.MAPPER_XML,
+            "src/main/java/com/x/web/LogController.java": self.CONTROLLER_JAVA,
+        })
+        idx = index_workspace(root)
+        statement = next(m for m in idx.methods if m.file.endswith(".xml") and m.name == "listLogs")
+        assert statement.arity == ANY_ARITY
+        assert [c.caller.name for c in callers_of(idx, statement)] == ["find"]
+
+    def test_malformed_xml_is_skipped_rather_than_raised(self, tmp_path):
+        idx = index_workspace(workspace(tmp_path, {
+            "mapper/Broken.xml": '<mapper namespace="com.x.A"><select id="q">unclosed',
+        }))
+        assert idx.methods == []

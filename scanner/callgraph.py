@@ -20,6 +20,7 @@ that CLAUDE.md replaced with Python.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
+from xml.parsers import expat
 
 import tree_sitter_java
 from tree_sitter import Language, Node, Parser
@@ -36,6 +37,18 @@ REQUEST_PARAM_ANNOTATIONS = frozenset({
     "CookieValue", "ModelAttribute", "RequestPart",
 })
 REQUEST_PARAM_TYPES = frozenset({"HttpServletRequest", "MultipartFile", "HttpEntity"})
+
+# MyBatis statement tags that a mapper interface method maps onto. <sql> is
+# deliberately absent: it is a fragment other statements <include>, not
+# something Java calls by name.
+MYBATIS_STATEMENT_TAGS = frozenset({"select", "insert", "update", "delete"})
+
+# An arity we could not read off a mapper interface, matched by callers_of()
+# against any argument count. A mapper XML names its method but never its
+# parameter list, so when the namespace lookup comes up empty a caller with
+# the wrong arity is still a better answer than no caller at all -- the same
+# trade this module's docstring makes for name matching generally.
+ANY_ARITY = -1
 
 MAX_DEPTH = 3
 
@@ -136,8 +149,96 @@ def _arity(node: Node, field_name: str) -> int:
     return sum(1 for c in container.children if c.is_named)
 
 
+def _mybatis_statements(src: bytes) -> tuple[str, list[tuple[str, int, int]]]:
+    """`(namespace, [(statement id, start line, end line)])` for a MyBatis
+    mapper XML; `("", [])` for any other XML.
+
+    expat rather than a regex because the span has to be right for
+    enclosing_method() to place a sink inside a statement, and statements
+    nest <if>/<foreach>/<include>/CDATA freely. Parameter-entity parsing is
+    turned off explicitly: every mapper opens with a DOCTYPE pointing at
+    mybatis.org, and ingested code is untrusted data that must never cause
+    a fetch (CLAUDE.md section 4).
+    """
+    parser = expat.ParserCreate()
+    parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    namespace = ""
+    open_statements: list[tuple[str | None, int]] = []
+    statements: list[tuple[str, int, int]] = []
+
+    def on_start(name: str, attrs: dict) -> None:
+        nonlocal namespace
+        tag = name.split(":")[-1]
+        if tag == "mapper" and not namespace:
+            namespace = attrs.get("namespace", "")
+        elif tag in MYBATIS_STATEMENT_TAGS:
+            open_statements.append((attrs.get("id"), parser.CurrentLineNumber))
+
+    def on_end(name: str) -> None:
+        if name.split(":")[-1] not in MYBATIS_STATEMENT_TAGS or not open_statements:
+            return
+        statement_id, start_line = open_statements.pop()
+        if statement_id:
+            statements.append((statement_id, start_line, parser.CurrentLineNumber))
+
+    parser.StartElementHandler = on_start
+    parser.EndElementHandler = on_end
+    try:
+        parser.Parse(src, True)
+    except expat.ExpatError:
+        # Malformed, or not XML at all. Nothing to link; the sink keeps the
+        # plain window it had before.
+        return "", []
+    return namespace, statements
+
+
+def index_mybatis_mappers(root: Path, index: Index) -> None:
+    """Give every MyBatis mapper statement a Method, so a sink inside the
+    XML can be traced back through the Java that calls it.
+
+    Measured on the vmscode corpus: 25 of 64 candidates sat in mapper XML
+    and every single one reported "no request entry point", because this
+    module only ever parsed .java. The XML carries the missing link itself
+    -- <mapper namespace="com.x.XMapper"> names the interface exactly and
+    <select id="listX"> names the method -- so unlike the name matching
+    everywhere else here, this half is resolved rather than guessed.
+
+    A statement gets one Method. Where the interface declares overloads of
+    that name, or cannot be found at all, that Method takes ANY_ARITY:
+    registering one node per overload would make trace_to_entry_points pick
+    just one of them and lose the others' callers.
+    """
+    by_file: dict[str, list[Method]] = {}
+    for method in index.methods:
+        by_file.setdefault(method.file, []).append(method)
+
+    for path in sorted(root.rglob("*.xml")):
+        try:
+            src = path.read_bytes()
+        except OSError:
+            continue
+        namespace, statements = _mybatis_statements(src)
+        # No namespace means no mapper: requiring it keeps an unrelated XML
+        # that happens to contain <select id="..."> out of the call graph.
+        if not namespace or not statements:
+            continue
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        suffix = namespace.replace(".", "/") + ".java"
+        declared = next((m for f, m in by_file.items() if f.endswith(suffix)), [])
+        for statement_id, start_line, end_line in statements:
+            arities = {m.arity for m in declared if m.name == statement_id}
+            index.methods.append(Method(
+                file=rel,
+                name=statement_id,
+                arity=arities.pop() if len(arities) == 1 else ANY_ARITY,
+                start_line=start_line,
+                end_line=end_line,
+            ))
+
+
 def index_workspace(root: Path, parser: Parser | None = None) -> Index:
-    """Parse every .java file under `root` into methods and call sites."""
+    """Parse every .java file under `root` into methods and call sites, then
+    link the MyBatis mapper statements onto the interfaces they implement."""
     parser = parser or _parser()
     index = Index()
     for path in sorted(root.rglob("*.java")):
@@ -147,6 +248,7 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
             continue
         rel = str(path.relative_to(root)).replace("\\", "/")
         _walk(parser.parse(src).root_node, src, rel, index, current=None)
+    index_mybatis_mappers(root, index)
     return index
 
 
@@ -193,7 +295,9 @@ def enclosing_method(index: Index, file: str, line: int) -> Method | None:
 
 def callers_of(index: Index, method: Method) -> list[Call]:
     return [c for c in index.calls
-            if c.callee == method.name and c.arity == method.arity and c.caller is not None]
+            if c.callee == method.name
+            and (method.arity == ANY_ARITY or c.arity == method.arity)
+            and c.caller is not None]
 
 
 def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = MAX_DEPTH) -> list[list[Call]]:
