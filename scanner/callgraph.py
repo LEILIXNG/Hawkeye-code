@@ -50,7 +50,16 @@ MYBATIS_STATEMENT_TAGS = frozenset({"select", "insert", "update", "delete"})
 # trade this module's docstring makes for name matching generally.
 ANY_ARITY = -1
 
-MAX_DEPTH = 3
+# Hops from a sink back to a request handler. 3 was chosen when the walk was
+# depth-first and every extra hop multiplied the work; with the breadth-first
+# walk in trace_to_entry_points() the cost is flat enough to set this from
+# the code instead. Measured on the vmscode corpus (64 candidates), candidates
+# with no reachable entry point: depth 3 -> 22, depth 5 -> 14, depth 7 -> 13,
+# depth 10 and 15 -> 13. So 7 is where a real layered Spring app saturates,
+# not a round number: the last chain it recovers is TemplateUtil.writeFile <-
+# ExportUtil x3 <- VulnerabilityService x3 <- an @PostMapping handler, checked
+# hop by hop against the source. The whole sweep costs 1.8s.
+MAX_DEPTH = 7
 
 
 @dataclass
@@ -306,8 +315,23 @@ def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = M
 
     Only chains that actually reach an entry point are returned: a chain that
     peters out in internal code says nothing the sink's own context did not
-    already say. Recursion and mutual recursion are bounded by both max_depth
-    and a per-chain visited set.
+    already say.
+
+    Breadth-first with a *shared* visited set, one shortest chain per entry
+    point reached. The depth-first version this replaces carried a per-chain
+    visited set, so it enumerated every distinct path and its cost grew
+    exponentially with max_depth: on the vmscode corpus, depth 5 produced
+    1,914 chains in 5.2s and depth 7 produced 33,248 in 99s, to feed a
+    context builder that prints four of them. Expanding each method once is
+    what makes a depth worth having affordable.
+
+    Nothing is lost by expanding once. An entry point is found by reaching
+    it as some method's caller, and every reachable method still gets
+    expanded -- just via whichever route found it first, which under BFS is
+    a shortest one. If anything the shared set reaches further, because a
+    method entered by its shortest route has more of the depth budget left.
+    Four chains to four different handlers also say more than four
+    permutations of the route to one.
     """
     start = enclosing_method(index, file, line)
     if start is None:
@@ -316,23 +340,25 @@ def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = M
         return [[]]
 
     found: list[list[Call]] = []
-    stack: list[tuple[Method, list[Call], set[tuple[str, str, int]]]] = [
-        (start, [], {(start.file, start.name, start.arity)})
-    ]
-    while stack:
-        method, chain, seen = stack.pop()
-        if len(chain) >= max_depth:
-            continue
-        for call in callers_of(index, method):
-            caller = call.caller
-            key = (caller.file, caller.name, caller.arity)
-            if key in seen:
-                continue
-            extended = chain + [call]
-            if caller.is_entry_point:
-                found.append(extended)
-            else:
-                stack.append((caller, extended, seen | {key}))
+    visited = {(start.file, start.name, start.arity)}
+    frontier: list[tuple[Method, list[Call]]] = [(start, [])]
+    for _ in range(max_depth):
+        next_frontier: list[tuple[Method, list[Call]]] = []
+        for method, chain in frontier:
+            for call in callers_of(index, method):
+                caller = call.caller
+                key = (caller.file, caller.name, caller.arity)
+                if key in visited:
+                    continue
+                visited.add(key)
+                extended = chain + [call]
+                if caller.is_entry_point:
+                    found.append(extended)
+                else:
+                    next_frontier.append((caller, extended))
+        if not next_frontier:
+            break
+        frontier = next_frontier
     if not found and start.is_entry_point:
         # Only a hinted entry (a request-shaped parameter type) and nothing
         # calls it: the hint is the best answer available, so report it as

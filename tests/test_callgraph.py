@@ -194,6 +194,63 @@ class TestTraceToEntryPoints:
         chains = trace_to_entry_points(idx, "A.java", sink_line)
         assert sorted(c[-1].caller.name for c in chains) == ["one", "two"]
 
+    def test_two_routes_to_one_handler_report_it_once(self, tmp_path):
+        """The breadth-first walk expands each method once, so a diamond
+        yields one shortest chain rather than one chain per route. The
+        depth-first version returned both, which is how a single sink came
+        back with 740 chains for a context builder that prints four."""
+        src = """
+            class A {
+                @GetMapping("/x")
+                public String entry(@RequestParam String q) { left(q); right(q); }
+                String left(String x) { return shared(x); }
+                String right(String x) { return shared(x); }
+                String shared(String x) { return exec(x); }
+            }
+        """
+        idx = index_workspace(workspace(tmp_path, {"A.java": src}))
+        sink_line = next(i for i, l in enumerate(src.splitlines(), 1) if "exec(x)" in l)
+        chains = trace_to_entry_points(idx, "A.java", sink_line)
+        assert len(chains) == 1
+        assert chains[0][-1].caller.name == "entry"
+
+    def test_distinct_handlers_behind_a_shared_helper_are_all_found(self, tmp_path):
+        """Expanding a method once must not cost an entry point: `shared` is
+        reached by one route, but both handlers call it and both matter."""
+        src = """
+            class A {
+                @GetMapping("/1")
+                public String one(@RequestParam String q) { return shared(q); }
+                @GetMapping("/2")
+                public String two(@RequestParam String q) { return shared(q); }
+                String shared(String x) { return deep(x); }
+                String deep(String x) { return exec(x); }
+            }
+        """
+        idx = index_workspace(workspace(tmp_path, {"A.java": src}))
+        sink_line = next(i for i, l in enumerate(src.splitlines(), 1) if "exec(x)" in l)
+        chains = trace_to_entry_points(idx, "A.java", sink_line)
+        assert sorted(c[-1].caller.name for c in chains) == ["one", "two"]
+
+    def test_chains_come_back_shortest_first(self, tmp_path):
+        """build_caller_context prints the first few, so the nearest handler
+        has to be among them."""
+        src = """
+            class A {
+                @GetMapping("/near")
+                public String near(@RequestParam String q) { return sink(q); }
+                @GetMapping("/far")
+                public String far(@RequestParam String q) { return hop(q); }
+                String hop(String x) { return sink(x); }
+                String sink(String x) { return exec(x); }
+            }
+        """
+        idx = index_workspace(workspace(tmp_path, {"A.java": src}))
+        sink_line = next(i for i, l in enumerate(src.splitlines(), 1) if "exec(x)" in l)
+        chains = trace_to_entry_points(idx, "A.java", sink_line)
+        assert [len(c) for c in chains] == [1, 2]
+        assert chains[0][-1].caller.name == "near"
+
     def test_recursion_terminates(self, tmp_path):
         idx = index_workspace(workspace(tmp_path, {"A.java": """
             class A {
