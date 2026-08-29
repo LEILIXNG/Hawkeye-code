@@ -234,3 +234,37 @@ def test_custom_rules_match_their_fixtures():
         assert proc.returncode == 0 and "did not pass" not in proc.stdout, (
             f"{path.name} does not match its fixture:\n{proc.stdout}\n{proc.stderr}"
         )
+
+
+def pinned_semgrep_version():
+    for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+        line = line.split("#")[0].strip()
+        if line.startswith("semgrep=="):
+            return line.removeprefix("semgrep==")
+    raise AssertionError("requirements.txt no longer pins semgrep to an exact version")
+
+
+def test_semgrep_is_pinned_to_an_exact_version():
+    """Standing decision: the engine stays on one version and detection
+    improves through rules/custom/ instead. A floating `semgrep>=x` would let
+    a fresh install pick up a release whose matching, constant propagation or
+    taint behaviour differs, moving findings with no change to this repo."""
+    version = pinned_semgrep_version()
+    assert version.count(".") == 2 and all(p.isdigit() for p in version.split(".")), version
+
+
+@pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
+def test_installed_semgrep_matches_the_pin():
+    """Pinning requirements.txt does nothing for a machine that already had a
+    different semgrep on PATH, which is the case that silently shifts results:
+    every number in eval/labels.json was measured against the pinned engine."""
+    proc = subprocess.run(["semgrep", "--version"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    # The CLI prints an upgrade notice on its own line before the version.
+    reported = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()][-1]
+    expected = pinned_semgrep_version()
+    assert reported == expected, (
+        f"semgrep on PATH is {reported}, requirements.txt pins {expected}. "
+        "The engine is deliberately frozen -- reinstall the pinned version "
+        "rather than re-baselining, unless the pin was changed on purpose."
+    )

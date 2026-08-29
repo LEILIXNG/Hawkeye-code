@@ -1,4 +1,17 @@
-semgrep>=1.170
+# Pinned exactly, not floated. A scan is only reproducible if BOTH halves
+# of the analysis are frozen: the rules (rules/vendor/semgrep-rules is a
+# submodule locked to one commit) and the engine that runs them. A minor
+# semgrep release can change matching, constant propagation or taint
+# behaviour, which silently moves findings without any of our code or rules
+# changing -- and the eval baseline in eval/labels.json is stated against
+# this exact engine.
+#
+# Standing decision: this version stays. Improvements to detection come from
+# rules/custom/, not from upgrading the engine. tests/test_ruleset.py asserts
+# the semgrep actually on PATH matches this pin, so an accidental
+# `pip install -U semgrep` fails the suite instead of quietly shifting
+# results.
+semgrep==1.173.0
 pyyaml>=6.0
 openai>=1.50
 python-dotenv>=1.0

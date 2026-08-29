@@ -38,6 +38,7 @@
 - **禁止提交 `data/` 目录下的实际内容**(候选结果、上传的 zip、报告、缓存),这些是运行产物不是源码,`.gitignore` 已经处理,不要用 `git add -f` 强行加进去。
 - **禁止在扫描/摄取阶段执行目标代码库里的任何脚本或构建命令**(比如自动跑目标项目的 `build.gradle`/`package.json` 脚本),摄取到的代码永远当作不可信数据,只做静态读取和解析。
 - **禁止跳过 JSON Schema 校验直接信任 LLM 输出**——`verify.py` 里解析 LLM 返回值必须走 `parse_llm_json` 这类显式校验路径,解析失败要显式标记 `verifier_failed`,不能静默吞掉或者硬凑一个默认值当结果用。
+- **禁止升级 Semgrep**。引擎永久锁在 `requirements.txt` 里钉死的那个版本(当前 `semgrep==1.173.0`),规则库锁在 `rules/vendor/semgrep-rules` 那个 submodule commit 上——**两半都冻住,扫描结果才是可复现的**,`eval/labels.json` 里的每个数字都是对着这个引擎测出来的。小版本更新就可能改变匹配、常量传播或污点行为,在我们一行代码一条规则都没动的情况下让发现漂移。**检测能力的提升一律走 `rules/custom/` 自研,不走升级引擎。** `tests/test_ruleset.py` 会断言 PATH 上的 semgrep 和这个 pin 一致,`pip install -U semgrep` 会让测试红掉而不是悄悄改结果。要改这个 pin 必须用户明确指示,改了就得重新跑一遍 `eval/labels.json` 基线。
 - **禁止破坏性 git 操作**(`reset --hard`、`push --force`、`clean -f`)在没有明确指令的情况下执行,即使只是本地仓库。
 - **禁止在没有确认的情况下修改 `docs/framework.md` 里已经定好的架构决策**(比如去重 key、缓存 key 的设计),这些是踩过坑改出来的,要改先说明原因。
 
