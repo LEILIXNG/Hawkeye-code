@@ -1,0 +1,81 @@
+# Open redirect where a Spring controller builds the Location header itself.
+#
+# Measured gap. The vendored ruleset mounts two CWE-601 rules and both are
+# blind to this application shape:
+#   - unvalidated-redirect  covers the Servlet API: response.sendRedirect()
+#     and response.addHeader("Location", ...);
+#   - spring-unvalidated-redirect covers Spring MVC's view-name convention:
+#     return "redirect:" + url, and ModelAndView("redirect:" + url).
+# A @RestController returning ResponseEntity uses neither. It puts the URL
+# into an HttpHeaders/MultiValueMap entry or onto the ResponseEntity
+# builder, which is exactly what VulnerableApp's
+# Http3xxStatusCodeBasedInjection does across 11 levels -- and the whole
+# category scanned clean.
+#
+# Note the header name usually arrives as a constant, not a literal
+# (`private static final String LOCATION_HEADER_KEY = "Location"`). Semgrep
+# propagates file-local constants, so matching on the string still works;
+# Spring's own HttpHeaders.LOCATION comes from another file and does not
+# propagate, so it is listed explicitly.
+#
+# Deliberately out of scope: the Servlet API path, which
+# unvalidated-redirect already claims. Overlapping there would only put a
+# second rule_id on a candidate that already has one.
+#
+# Plain pattern rules, not `mode: taint`, for the same reason as the other
+# rules here: Semgrep surfaces candidates and the LLM verify stage decides
+# reachability (docs/framework.md sections 3-4). That division matters more
+# than usual for this rule -- open redirect defences are startsWith/contains
+# checks and allowlists, which is a judgement call about whether the check
+# actually holds, not a pattern.
+rules:
+  - id: spring-location-header-from-nonconstant-url
+    languages: [java]
+    severity: WARNING
+    message: >
+      A Location header is being set to a value that is not a compile-time
+      constant, producing an HTTP redirect to a computed target. If the value
+      derives from the request, an attacker can redirect users to a site they
+      control -- typically to a phishing page that inherits the trust of this
+      application's domain. Validate the target against an allowlist rather
+      than by prefix or substring checks.
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      owasp:
+        - "A01:2021 - Broken Access Control"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-either:
+          # HttpHeaders / MultiValueMap, both the direct setters and the
+          # get-then-append form VulnerableApp uses.
+          - patterns:
+              - pattern-either:
+                  - pattern: $H.add($LOC, $URL)
+                  - pattern: $H.set($LOC, $URL)
+                  - pattern: $H.get($LOC).add($URL)
+                  # The ResponseEntity builder: .header(name, value).
+                  - pattern: $B.header($LOC, $URL)
+              - metavariable-pattern:
+                  metavariable: $LOC
+                  pattern-either:
+                    - pattern: "\"=~/^[Ll]ocation$/\""
+                    - pattern: org.springframework.http.HttpHeaders.LOCATION
+          # Typed setters that name the header themselves. These two match
+          # on the method name alone -- there is no receiver type to pin
+          # them to, so an unrelated class with a location()/setLocation()
+          # method matches as well. Accepted knowingly: the branches above
+          # carry the precision, these two exist so the common Spring
+          # spelling is not a false negative, and the verify stage drops a
+          # match whose value never came from a request. Zero spurious hits
+          # on VulnerableApp; revisit if a real project says otherwise.
+          - pattern: $H.setLocation($URL)
+          - pattern: $B.location($URL)
+      # A fixed redirect target cannot be steered by a request. `"..."` is
+      # semgrep's any-string-literal pattern and sees through constant
+      # propagation, so a target parked in a final local is covered too.
+      - metavariable-pattern:
+          metavariable: $URL
+          patterns:
+            - pattern: $ANY
+            - pattern-not: "\"...\""

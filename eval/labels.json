@@ -64,5 +64,35 @@
     "line": 150,
     "expected_reachable": "yes",
     "note": "XXE LEVEL_2, only external-general-entities disabled; parameter entities still resolve, so still exploitable"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+    "line": 67,
+    "expected_reachable": "yes",
+    "note": "open redirect, shared getURLRedirectionResponseEntity sink reached by LEVEL_1/9/10 with the validator (url) -> true, i.e. no validation at all"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+    "line": 263,
+    "expected_reachable": "yes",
+    "note": "open redirect LEVEL_6, own protocol+authority prefixed but the param is appended with no separator, so a payload starting with . or @ leaves the domain"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+    "line": 296,
+    "expected_reachable": "yes",
+    "note": "open redirect LEVEL_7, leading / stripped then a / separator forced; still marked @AttackVector and exploitable via backslash payloads like \\/google.com"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/openRedirect/Http3xxStatusCodeBasedInjection.java",
+    "line": 377,
+    "expected_reachable": "no",
+    "note": "open redirect LEVEL_11, Variant.SECURE -- the target must be in WHITELISTED_URLS before the Location header is set, so the redirect is not attacker-steerable"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/passwordReset/PasswordResetVulnerability.java",
+    "line": 333,
+    "expected_reachable": "no",
+    "note": "not an open redirect: the Location value is a StringBuilder rooted at the hardcoded relative path /VulnerableApp/, and the request-controlled token only lands in a query parameter -- the destination itself is fixed"
   }
 ]
