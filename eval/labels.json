@@ -94,5 +94,29 @@
     "line": 333,
     "expected_reachable": "no",
     "note": "not an open redirect: the Location value is a StringBuilder rooted at the hardcoded relative path /VulnerableApp/, and the request-controlled token only lands in a query parameter -- the destination itself is fixed"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/pathTraversal/PathTraversalVulnerability.java",
+    "line": 51,
+    "expected_reachable": "yes",
+    "note": "path traversal, the single readFile() sink all 12 levels funnel into; LEVEL_1 validates only that fileName is non-null. Invisible to every mounted taint rule because source and sink are in different methods -- the call graph recovers all 12 chains"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/UnrestrictedFileUpload.java",
+    "line": 118,
+    "expected_reachable": "yes",
+    "note": "path traversal via upload: root.resolve(fileName) with fileName from MultipartFile.getOriginalFilename(); LEVEL_1 passes the validator () -> true. Path.resolve is not in any mounted rule's sink list"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/PreflightController.java",
+    "line": 43,
+    "expected_reachable": "yes",
+    "note": "same vulnerability as the labelled :46, one line earlier -- :43 is the resolve(fileName) where traversal happens, :46 the FileInputStream that reads it"
+  },
+  {
+    "file": "src/main/java/org/sasanlabs/benchmark/service/BenchmarkResultWriter.java",
+    "line": 41,
+    "expected_reachable": "no",
+    "note": "reachable from BenchmarkController.benchmark(@RequestBody) but sanitized, not unreachable: sanitizeToolName() applies replaceAll(\"[^a-z0-9_-]\", \"\"), which strips dots and slashes, so ../ cannot survive into the resolved path"
   }
 ]

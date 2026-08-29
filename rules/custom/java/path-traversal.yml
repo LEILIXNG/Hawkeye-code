@@ -1,0 +1,100 @@
+# Path traversal where the flow the vendored taint rules would need is one
+# they structurally cannot follow.
+#
+# This gap has a different cause from the other rules here, and the cause is
+# the interesting part. For XXE and open redirect the vendored rules were
+# blind because the *sink shape* was not covered. Here the sink shape mostly
+# is covered -- tainted-file-path lists getResourceAsStream by name -- and
+# the rules still produce nothing, because they are `mode: taint` and
+# semgrep OSS taint analysis is intraprocedural.
+#
+# VulnerableApp's PathTraversalVulnerability is the clean demonstration:
+# twelve request handlers each pull `fileName` out of the query parameters
+# and hand it to one private readFile() helper, and the read happens inside
+# that helper. Source and sink are in different methods, so no taint rule
+# fires, and twelve levels of a textbook vulnerability scanned completely
+# clean. UnrestrictedFileUpload is the same story across ten more levels,
+# with the extra wrinkle that its sink -- Path.resolve() -- is not in the
+# vendored rule's sink list either.
+#
+# That is precisely the division of labour this project is built around: a
+# plain pattern rule surfaces the sink, scanner/callgraph.py reconstructs
+# how a request reaches it, and the verify stage decides. Semgrep does not
+# need to prove the flow, so it does not matter that it cannot.
+#
+# Two deliberate exclusions, both measured on the corpus rather than
+# guessed:
+#
+#   - A segment that is a string literal, or that is named like a Java
+#     compile-time constant. Cross-file constants do not propagate, so
+#     `JWTUtils.KEYS_LOCATION + "public_crt.pem"` looks non-constant to
+#     semgrep; without this, JWTVulnerability contributes two findings that
+#     are wrong in an obvious and repetitive way.
+#   - A bare non-constant with no path join and no concatenation, i.e.
+#     `new File(path)`. That shape is every "open the file I was handed" in
+#     a codebase. Including it took the corpus from 1 finding to 8, six of
+#     them noise from benchmark tooling and constant upload roots, and it is
+#     also the shape tainted-file-path already handles whenever the flow
+#     stays inside one method. Accepted as a false negative; revisit it on a
+#     real project rather than on this one.
+#
+# The constant-name exclusion is textual (UPPER_SNAKE, optionally qualified)
+# rather than structural. A structural `pattern-not: $A.$B` was tried first
+# and is a trap: it stops matching as soon as semgrep constant-folds a
+# same-file constant, so it silently covers only the cross-file half of the
+# cases it appears to cover. The fixture catches exactly that.
+#
+# Path.resolve() and MultipartFile.transferTo() are matched on a bare
+# argument, without requiring concatenation, because both *are* path joins:
+# the traversal is the argument, not the assembly around it.
+#
+# Files.copy/Files.write are deliberately absent even though they are file
+# sinks. Their path argument is normally a resolve() call that this rule
+# already matches, so adding them reported the same statement twice, at two
+# different lines, which the dedup key cannot merge because it keys on sink
+# location.
+rules:
+  - id: file-path-with-nonconstant-segment
+    languages: [java]
+    severity: WARNING
+    message: >
+      A file or classpath resource is opened at a path containing a segment
+      that is not a compile-time constant. If that segment derives from the
+      request, `../` sequences in it escape the intended directory and the
+      handler will read or write an arbitrary file. Resolve the path and
+      then check that its canonical form is still inside the intended root,
+      or accept only names from an allowlist -- rejecting `..` by substring
+      is not sufficient, as encoded and null-byte variants get past it.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      owasp:
+        - "A01:2021 - Broken Access Control"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-either:
+          # A path assembled by concatenation, where the appended segment is
+          # the thing an attacker would supply.
+          - pattern: $C.getResourceAsStream($PREFIX + $SEGMENT)
+          - pattern: $C.getResource($PREFIX + $SEGMENT)
+          - pattern: new File($PREFIX + $SEGMENT)
+          - pattern: new java.io.File($PREFIX + $SEGMENT)
+          - pattern: new FileInputStream($PREFIX + $SEGMENT)
+          - pattern: new java.io.FileInputStream($PREFIX + $SEGMENT)
+          - pattern: new FileReader($PREFIX + $SEGMENT)
+          - pattern: new FileOutputStream($PREFIX + $SEGMENT)
+          - pattern: Paths.get($PREFIX + $SEGMENT)
+          - pattern: Path.of($PREFIX + $SEGMENT)
+          - pattern: new ClassPathResource($PREFIX + $SEGMENT)
+          # Path joins, where a bare non-constant argument is already the
+          # traversal shape.
+          - pattern: $P.resolve($SEGMENT)
+          - pattern: $F.transferTo($SEGMENT)
+      - metavariable-pattern:
+          metavariable: $SEGMENT
+          patterns:
+            - pattern: $ANY
+            - pattern-not: "\"...\""
+      - metavariable-regex:
+          metavariable: $SEGMENT
+          regex: ^(?!([A-Za-z_$][A-Za-z0-9_$]*\.)*[A-Z][A-Z0-9_]*$)
