@@ -125,6 +125,98 @@ def build_caller_context(target: Path, candidate: dict, index) -> str:
     return "\n".join(blocks)
 
 
+MAX_CALLEE_BODIES = 3
+CALLEE_MAX_LINES = 40
+
+# Value transformers get shown; boolean predicates do not. The block's
+# purpose is "what did this do to the value", and a predicate answers a
+# different question -- whether the flow was guarded -- which the sink's own
+# code already shows at the call site.
+#
+# This is not a style preference, it is the measured difference between the
+# two cases that moved. sanitizeToolName() returns the string that reaches
+# the sink, and showing it corrected BenchmarkResultWriter:41. isUrlValid()
+# returns a boolean, and showing it broke SSRFVulnerability:129 and :146 in
+# both runs it was present for: handed the body, the model wrote "the
+# endpoint explicitly validates the URL" and called them sanitized, where
+# seeing only the call site it had correctly said a denylist of one metadata
+# IP is insufficient. Prefacing the block with a caution did not help.
+PREDICATE_RETURN_TYPES = frozenset({"boolean", "Boolean"})
+
+
+def build_callee_context(target: Path, candidate: dict, index) -> str:
+    """The bodies of the project's own methods called on the way to the sink.
+
+    The caller context answers "can a request get here". This answers the
+    other half, "was it cleaned on the way in", and without it the verify
+    stage guesses. Measured on the corpus: BenchmarkResultWriter's sink is
+    `dir.resolve(sanitizeToolName(...) + "-results.json")`, and
+    sanitizeToolName -- which strips everything outside [a-z0-9_-] and so
+    makes traversal impossible -- sits below the enclosing method, outside
+    any window anchored on the sink. The verifier called it exploitable and
+    said why: "if sanitizeToolName doesn't properly neutralize '..'".
+
+    Only calls that resolve to a method in the index are shown, which is
+    what keeps this small: library calls like Paths.get or Files.copy
+    resolve to nothing and drop out on their own, with no allowlist to
+    maintain. Only calls at or before the sink line are considered, since a
+    value reaching the sink was computed before it.
+    """
+    method = enclosing_method(index, candidate["sink_file"], candidate["sink_line"])
+    if method is None:
+        return ""
+    here = (method.file, method.name, method.arity, method.start_line)
+    sink_line = candidate["sink_line"]
+
+    resolved: list = []
+    seen = set()
+    calls = [c for c in index.calls
+             if c.caller is not None
+             and (c.caller.file, c.caller.name, c.caller.arity, c.caller.start_line) == here
+             and c.line <= sink_line]
+    for call in sorted(calls, key=lambda c: sink_line - c.line):
+        matches = index.methods_named(call.callee, call.arity)
+        # The call graph matches on name and arity with no type resolution,
+        # so an ambiguous name resolves to every same-shaped method in the
+        # project. For the caller chains that is a deliberate trade -- an
+        # extra plausible chain costs a few lines. Here it is not: printing
+        # some unrelated class's toString() as "the method called on the way
+        # to the sink" states something false. PasswordResetVulnerability
+        # :333 pulled in three unrelated toString() bodies this way.
+        if len(matches) != 1:
+            continue
+        callee = matches[0]
+        key = (callee.file, callee.name, callee.arity, callee.start_line)
+        if key in seen or key == here:
+            continue
+        seen.add(key)
+        if callee.return_type in PREDICATE_RETURN_TYPES:
+            continue
+        resolved.append(callee)
+
+    if not resolved:
+        return ""
+
+    # Prefacing this block with a caution -- "a check being present is not
+    # evidence it is sufficient" -- was tried against the SSRF regression
+    # described above. It did not recover those two labels, and across four
+    # verify passes its presence or absence never separated from the ~16%
+    # run-to-run flip rate the verifier has on this corpus. Left out: the
+    # filters above fixed the regression structurally, and paying for
+    # wording on every prompt needs better evidence than a 20-label set can
+    # currently give.
+    blocks = ["### Methods called on the way to the sink"]
+    for callee in resolved[:MAX_CALLEE_BODIES]:
+        end = min(callee.end_line, callee.start_line + CALLEE_MAX_LINES - 1)
+        lines = _source_lines(target, callee.file)
+        rendered = _numbered(lines, callee.start_line, end) if lines else "(file not found)"
+        elided = "" if end >= callee.end_line else f"\n      | ... {callee.end_line - end} more lines ..."
+        blocks.append(f"\n{callee.name}() in {callee.file}\n{rendered}{elided}")
+    if len(resolved) > MAX_CALLEE_BODIES:
+        blocks.append(f"\n(+{len(resolved) - MAX_CALLEE_BODIES} more called methods not shown)")
+    return "\n".join(blocks)
+
+
 def build_context(target: Path, candidate: dict, index=None) -> str:
     sink_block = read_method_window(target, candidate["sink_file"], candidate["sink_line"], index)
     if candidate["source_file"] == candidate["sink_file"] and candidate["source_line"] == candidate["sink_line"]:
@@ -138,6 +230,9 @@ def build_context(target: Path, candidate: dict, index=None) -> str:
 
     if index is not None:
         parts.append(build_caller_context(target, candidate, index))
+        callees = build_callee_context(target, candidate, index)
+        if callees:
+            parts.append(callees)
     return "\n\n".join(parts)
 
 

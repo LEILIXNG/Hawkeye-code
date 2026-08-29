@@ -47,7 +47,15 @@ class Method:
     arity: int
     start_line: int
     end_line: int
+    return_type: str = ""
     entry_reason: str = ""
+    # Whether entry_reason is proof or only a hint. A mapping annotation, or
+    # a parameter the framework binds from the request, only ever appears on
+    # a real handler. A parameter *type* does not: any helper can be handed
+    # an HttpServletRequest or a MultipartFile, and treating those as proof
+    # made trace_to_entry_points stop at the helper and never show the
+    # handlers that call it -- which is where the validation lives.
+    entry_definitive: bool = False
 
     @property
     def is_entry_point(self) -> bool:
@@ -90,17 +98,21 @@ def _annotation_names(node: Node, src: bytes) -> set[str]:
     return names
 
 
-def _entry_reason(method_node: Node, src: bytes) -> str:
-    """Why a request could enter here, or "" if it could not."""
+def _entry_reason(method_node: Node, src: bytes) -> tuple[str, bool]:
+    """Why a request could enter here, and whether that is proof or a hint.
+
+    Returns ("", False) when nothing suggests a request can enter.
+    """
     modifiers = next((c for c in method_node.children if c.type == "modifiers"), None)
     if modifiers is not None:
         mapped = _annotation_names(modifiers, src) & REQUEST_MAPPING_ANNOTATIONS
         if mapped:
-            return f"@{sorted(mapped)[0]}"
+            return f"@{sorted(mapped)[0]}", True
 
     params = method_node.child_by_field_name("parameters")
     if params is None:
-        return ""
+        return "", False
+    weak = ""
     for param in params.children:
         if param.type != "formal_parameter":
             continue
@@ -108,11 +120,13 @@ def _entry_reason(method_node: Node, src: bytes) -> str:
         if param_modifiers is not None:
             annotated = _annotation_names(param_modifiers, src) & REQUEST_PARAM_ANNOTATIONS
             if annotated:
-                return f"@{sorted(annotated)[0]} parameter"
+                return f"@{sorted(annotated)[0]} parameter", True
         type_node = param.child_by_field_name("type")
-        if type_node is not None and _text(type_node, src).split("<")[0] in REQUEST_PARAM_TYPES:
-            return f"{_text(type_node, src)} parameter"
-    return ""
+        if not weak and type_node is not None and _text(type_node, src).split("<")[0] in REQUEST_PARAM_TYPES:
+            weak = f"{_text(type_node, src)} parameter"
+    # Keep looking for an annotated parameter before settling for a type:
+    # a handler often has both, and the annotation is the stronger claim.
+    return weak, False
 
 
 def _arity(node: Node, field_name: str) -> int:
@@ -140,13 +154,17 @@ def _walk(node: Node, src: bytes, rel: str, index: Index, current: Method | None
     if node.type in ("method_declaration", "constructor_declaration"):
         name_node = node.child_by_field_name("name")
         if name_node is not None:
+            reason, definitive = _entry_reason(node, src)
+            return_node = node.child_by_field_name("type")
             current = Method(
                 file=rel,
                 name=_text(name_node, src),
                 arity=_arity(node, "parameters"),
+                return_type=_text(return_node, src) if return_node is not None else "",
                 start_line=node.start_point[0] + 1,
                 end_line=node.end_point[0] + 1,
-                entry_reason=_entry_reason(node, src),
+                entry_reason=reason,
+                entry_definitive=definitive,
             )
             index.methods.append(current)
     elif node.type == "method_invocation":
@@ -190,7 +208,7 @@ def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = M
     start = enclosing_method(index, file, line)
     if start is None:
         return []
-    if start.is_entry_point:
+    if start.entry_definitive:
         return [[]]
 
     found: list[list[Call]] = []
@@ -211,4 +229,9 @@ def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = M
                 found.append(extended)
             else:
                 stack.append((caller, extended, seen | {key}))
+    if not found and start.is_entry_point:
+        # Only a hinted entry (a request-shaped parameter type) and nothing
+        # calls it: the hint is the best answer available, so report it as
+        # the handler rather than as unreachable.
+        return [[]]
     return sorted(found, key=len)

@@ -237,3 +237,73 @@ class TestCallersOf:
 def _dummy():
     from scanner.callgraph import Method
     return Method(file="A.java", name="x", arity=0, start_line=1, end_line=1)
+
+
+class TestEntryPointStrength:
+    """A mapping annotation, or a parameter the framework binds, only ever
+    appears on a real handler. A parameter *type* does not -- any helper can
+    be handed an HttpServletRequest or a MultipartFile. Treating the weak
+    signal as proof made the search stop at the helper and never reach the
+    handlers that call it, which is where the validation lives.
+    """
+
+    UPLOAD = """
+        class Upload {
+            @VulnerableAppRequestMapping(value = "LEVEL_1")
+            public String levelOne(@RequestParam MultipartFile file) {
+                return store(root, file.getOriginalFilename(), file);
+            }
+
+            @VulnerableAppRequestMapping(value = "LEVEL_2")
+            public String levelTwo(@RequestParam MultipartFile file) {
+                return store(root, sanitize(file.getOriginalFilename()), file);
+            }
+
+            private String store(Path root, String fileName, MultipartFile file) {
+                return root.resolve(fileName).toString();
+            }
+        }
+    """
+
+    def test_a_helper_taking_a_request_type_still_reports_its_callers(self, tmp_path):
+        idx = index_workspace(workspace(tmp_path, {"Upload.java": self.UPLOAD}))
+        store = next(m for m in idx.methods if m.name == "store")
+        assert store.entry_reason, "the MultipartFile parameter is still worth noting"
+        assert not store.entry_definitive, "but it is a hint, not proof"
+
+        chains = trace_to_entry_points(idx, "Upload.java", store.start_line + 1)
+
+        assert chains != [[]], "the helper must not be mistaken for the handler"
+        assert len(chains) == 2, "both level handlers call it"
+        assert {c[-1].caller.name for c in chains} == {"levelOne", "levelTwo"}
+
+    def test_a_mapping_annotation_is_proof_and_stops_the_search(self, tmp_path):
+        idx = index_workspace(workspace(tmp_path, {"Upload.java": self.UPLOAD}))
+        handler = next(m for m in idx.methods if m.name == "levelOne")
+        assert handler.entry_definitive
+
+        assert trace_to_entry_points(idx, "Upload.java", handler.start_line + 1) == [[]]
+
+    def test_an_annotated_parameter_is_proof(self, tmp_path):
+        idx = index_workspace(workspace(tmp_path, {"A.java": """
+            class A {
+                public String handler(@RequestBody Payload body) { return sink(body); }
+            }
+        """}))
+        method = next(m for m in idx.methods if m.name == "handler")
+        assert method.entry_definitive and "RequestBody" in method.entry_reason
+
+    def test_a_hinted_entry_with_no_callers_is_still_reported_as_the_handler(self, tmp_path):
+        """Otherwise a real servlet-style handler nothing calls would come
+        back as unreachable, which is worse than the hint."""
+        idx = index_workspace(workspace(tmp_path, {"S.java": """
+            class S {
+                protected void doGet(HttpServletRequest request) {
+                    sink(request);
+                }
+            }
+        """}))
+        method = next(m for m in idx.methods if m.name == "doGet")
+        assert method.entry_reason and not method.entry_definitive
+
+        assert trace_to_entry_points(idx, "S.java", method.start_line + 1) == [[]]
