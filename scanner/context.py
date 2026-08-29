@@ -10,21 +10,79 @@ callers answer.
 """
 from pathlib import Path
 
-from scanner.callgraph import trace_to_entry_points
+from scanner.callgraph import enclosing_method, trace_to_entry_points
 
 
 CONTEXT_WINDOW = 15  # lines of code above/below each location to include
 
+# A fixed window cuts methods in half. Measured over the VulnerableApp
+# corpus, 21 of 51 candidates had their enclosing method truncated by
+# CONTEXT_WINDOW, the worst losing 31 lines above the sink -- and what sits
+# above a sink is the signature, which is where @RequestParam / @GetMapping
+# say whether the value is user-controlled at all. That is the question the
+# verify stage is being asked, so the window snaps to the enclosing method.
+#
+# tree-sitter puts a method's annotations inside its span, so snapping picks
+# up @VulnerableAppRequestMapping and friends for free -- checked, not
+# assumed. The cap stops one long method from crowding out the call paths
+# printed below it; past the cap the head is what is kept, because the head
+# is the signature.
+MAX_METHOD_LINES = 120
+METHOD_HEAD_LINES = 12
+
+
+def _source_lines(target: Path, rel_path: str) -> list[str] | None:
+    full_path = target / rel_path
+    if not full_path.exists():
+        return None
+    return full_path.read_text(encoding="utf-8", errors="replace").splitlines()
+
+
+def _numbered(lines: list[str], start: int, end: int) -> str:
+    """Lines `start`..`end`, 1-based and inclusive, clamped to the file."""
+    start = max(1, start)
+    end = min(len(lines), end)
+    return "\n".join(f"{i:>5} | {lines[i - 1]}" for i in range(start, end + 1))
+
 
 def read_window(target: Path, rel_path: str, line: int, window: int) -> str:
-    full_path = target / rel_path
-    if not full_path.exists() or line is None:
+    lines = _source_lines(target, rel_path)
+    if lines is None or line is None:
         return f"(file not found: {rel_path})"
-    lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    start = max(0, line - 1 - window)
-    end = min(len(lines), line - 1 + window + 1)
-    numbered = [f"{i + 1:>5} | {lines[i]}" for i in range(start, end)]
-    return "\n".join(numbered)
+    return _numbered(lines, line - window, line + window)
+
+
+def read_method_window(target: Path, rel_path: str, line: int, index,
+                       window: int = CONTEXT_WINDOW) -> str:
+    """The whole method containing `line`, or a plain window around it when
+    there is no method to snap to.
+
+    Falls back to read_window whenever the call graph cannot place the line
+    -- a field initialiser, a static block, a file that failed to parse --
+    so the verify stage never loses context just because the index came up
+    empty.
+    """
+    lines = _source_lines(target, rel_path)
+    if lines is None or line is None:
+        return f"(file not found: {rel_path})"
+    method = enclosing_method(index, rel_path, line) if index is not None else None
+    if method is None:
+        return _numbered(lines, line - window, line + window)
+
+    if method.end_line - method.start_line + 1 <= MAX_METHOD_LINES:
+        return _numbered(lines, method.start_line, method.end_line)
+
+    head_end = method.start_line + METHOD_HEAD_LINES - 1
+    tail_start = max(line - window, head_end + 1)
+    tail_end = min(line + window, method.end_line)
+    if tail_start > tail_end:
+        return _numbered(lines, method.start_line, head_end)
+    omitted = tail_start - head_end - 1
+    return (
+        _numbered(lines, method.start_line, head_end)
+        + f"\n      | ... {omitted} lines omitted ...\n"
+        + _numbered(lines, tail_start, tail_end)
+    )
 
 
 MAX_CALLER_CHAINS = 4  # a shared sink can have many; four is enough to show the pattern
@@ -68,11 +126,11 @@ def build_caller_context(target: Path, candidate: dict, index) -> str:
 
 
 def build_context(target: Path, candidate: dict, index=None) -> str:
-    sink_block = read_window(target, candidate["sink_file"], candidate["sink_line"], CONTEXT_WINDOW)
+    sink_block = read_method_window(target, candidate["sink_file"], candidate["sink_line"], index)
     if candidate["source_file"] == candidate["sink_file"] and candidate["source_line"] == candidate["sink_line"]:
         parts = [f"### {candidate['sink_file']} (source == sink)\n{sink_block}"]
     else:
-        source_block = read_window(target, candidate["source_file"], candidate["source_line"], CONTEXT_WINDOW)
+        source_block = read_method_window(target, candidate["source_file"], candidate["source_line"], index)
         parts = [
             f"### Source: {candidate['source_file']}\n{source_block}\n\n"
             f"### Sink: {candidate['sink_file']}\n{sink_block}"
