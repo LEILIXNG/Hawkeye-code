@@ -55,9 +55,9 @@
   },
   {
     "file": "src/main/java/org/sasanlabs/service/vulnerability/xxe/XXEVulnerability.java",
-    "line": 72,
+    "line": 77,
     "expected_reachable": "yes",
-    "note": "XXE LEVEL_1, JAXB unmarshal straight off request.getInputStream() with no hardening, textbook XXE"
+    "note": "XXE LEVEL_1, JAXB unmarshal straight off request.getInputStream() with no hardening, textbook XXE; line is the unmarshal() call, which is where the rule now anchors (it used to report the getInputStream() line, 72)"
   },
   {
     "file": "src/main/java/org/sasanlabs/service/vulnerability/xxe/XXEVulnerability.java",

@@ -1,24 +1,47 @@
-# Catches shell invocation via ProcessBuilder("sh"/"cmd", "-c"/"/c", <concatenated command>).
+# Catches a shell being invoked (sh/bash -c, cmd /c) with a command line
+# that is not a compile-time constant.
 #
-# The public Semgrep registry (p/java, p/security-audit, p/owasp-top-ten)
-# has no rule that matches this specific shape -- confirmed against
-# VulnerableApp's CommandInjection.java, which none of the three caught.
-# GitLab's managed SAST does catch it, via find_sec_bugs.COMMAND_INJECTION-1,
-# which is not in the public registry.
+# Scope is deliberately narrow, and the narrowness is the design. The
+# vendored ruleset already carries command-injection-process-builder,
+# command-injection-formatted-runtime-call and two taint-mode rules for
+# command execution; anything this rule matches that they also match
+# becomes a second rule_id on the same candidate for no extra information.
+# What it covers is the measured gap in those rules:
 #
-# This is a plain pattern rule, not `mode: taint`. It's deliberately
-# over-inclusive on purpose: this project's job for Semgrep is to surface
-# candidates, not to prove reachability -- that's what the context
-# extraction + LLM verify stages are for (see docs/framework.md section 3-4).
+#   - the sh/bash *array* form. command-injection-process-builder spells
+#     out `new ProcessBuilder(new String[]{"cmd","/c",$ARG,...})` and the
+#     non-array `new ProcessBuilder("=~/(sh|bash|...)/","-c",$ARG,...)`,
+#     but never the two combined -- so on VulnerableApp it fires on
+#     CommandInjection.java:52 (cmd) and not on :47 (sh), which is the
+#     same vulnerability twice.
+#   - `Runtime.exec` handed a pre-built shell argv.
+#     command-injection-formatted-runtime-call only matches `exec($X + $Y)`
+#     and `exec(String.format(...))`, i.e. concatenation written inside the
+#     call itself.
+#   - both of the above when the command was assembled into a local first.
+#
+# What it deliberately does NOT cover: ProcessBuilder/exec without a shell
+# (`new ProcessBuilder("ping", "-c", "2", ip)`). Without a shell the argv
+# entries are arguments, not commands, and command-injection-process-builder
+# already claims that shape.
+#
+# This is a plain pattern rule, not `mode: taint`. It's over-inclusive on
+# purpose: this project's job for Semgrep is to surface candidates, not to
+# prove reachability -- that's what the context extraction + LLM verify
+# stages are for (see docs/framework.md section 3-4).
+#
+# Every shape above, and every shape the rule must stay off, is pinned in
+# command-injection.java and checked by `semgrep --test` from
+# tests/test_ruleset.py. Change the patterns and that fixture is what tells
+# you whether you widened the rule or broke it.
 rules:
-  - id: shell-invocation-with-string-concatenation
+  - id: shell-invocation-with-nonconstant-command
     languages: [java]
     severity: ERROR
     message: >
-      A shell is invoked (sh -c / cmd /c) with a command string built via
-      string concatenation. If any part of the concatenated value can be
-      influenced by external input, this allows arbitrary command
-      execution.
+      A shell is invoked (sh -c / bash -c / cmd /c) with a command line that
+      is not a compile-time constant. If any part of that value can be
+      influenced by external input, this allows arbitrary command execution.
     metadata:
       cwe:
         - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
@@ -27,7 +50,34 @@ rules:
       source: sast-local/rules/custom
     patterns:
       - pattern-either:
-          - pattern: new ProcessBuilder(new String[] {"sh", "-c", $CMD + $VAR})
-          - pattern: new ProcessBuilder(new String[] {"cmd", "/c", $CMD + $VAR})
-          - pattern: new ProcessBuilder("sh", "-c", $CMD + $VAR)
-          - pattern: new ProcessBuilder("cmd", "/c", $CMD + $VAR)
+          - pattern: new ProcessBuilder(new String[] {"sh", "-c", $ARG})
+          - pattern: new ProcessBuilder(new String[] {"bash", "-c", $ARG})
+          - pattern: new ProcessBuilder(new String[] {"cmd", "/c", $ARG})
+          - pattern: new ProcessBuilder("sh", "-c", $ARG)
+          - pattern: new ProcessBuilder("bash", "-c", $ARG)
+          - pattern: new ProcessBuilder("cmd", "/c", $ARG)
+          - pattern: new ProcessBuilder(Arrays.asList("sh", "-c", $ARG))
+          - pattern: new ProcessBuilder(Arrays.asList("bash", "-c", $ARG))
+          - pattern: new ProcessBuilder(Arrays.asList("cmd", "/c", $ARG))
+          - pattern: $R.exec(new String[] {"sh", "-c", $ARG})
+          - pattern: $R.exec(new String[] {"bash", "-c", $ARG})
+          - pattern: $R.exec(new String[] {"cmd", "/c", $ARG})
+          - pattern: $R.exec("sh", "-c", $ARG)
+          - pattern: $R.exec("bash", "-c", $ARG)
+          - pattern: $R.exec("cmd", "/c", $ARG)
+      # A shell line built entirely out of literals carries no external
+      # input. `"..."` is semgrep's any-string-literal pattern, and it sees
+      # through constant propagation, so this also covers the command being
+      # parked in a final local first.
+      - pattern-not: new ProcessBuilder(new String[] {"...", "...", "..."})
+      - pattern-not: new ProcessBuilder("...", "...", "...")
+      - pattern-not: new ProcessBuilder(Arrays.asList("...", "...", "..."))
+      - pattern-not: $R.exec(new String[] {"...", "...", "..."})
+      - pattern-not: $R.exec("...", "...", "...")
+      # Belt and braces for the local-variable case on the versions where
+      # constant propagation does not reach: the binding of $ARG is shared
+      # with the positive pattern, so this only subtracts when the very
+      # variable being passed to the shell was assigned a literal.
+      - pattern-not-inside: |
+          $ARG = "...";
+          ...

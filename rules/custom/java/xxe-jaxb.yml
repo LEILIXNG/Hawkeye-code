@@ -27,18 +27,27 @@ rules:
       owasp:
         - "A05:2021 - Security Misconfiguration"
       source: sast-local/rules/custom
+    # Written as `pattern-inside` + a pattern on the call, not as one
+    # `$IN = $REQ.getInputStream(); ... $U.unmarshal($IN);` sequence. A
+    # sequence pattern reports the range it matched, which starts at the
+    # assignment -- so the finding landed on the getInputStream() line while
+    # its message talked about the unmarshaller, and everything downstream
+    # that keys off the sink location (the dedup key, the call graph, the
+    # context sent to the verifier) was anchored one statement too early.
     patterns:
       - pattern-either:
           - pattern: $U.unmarshal($REQ.getInputStream())
           - pattern: $U.unmarshal($REQ.getReader())
-          - pattern: |
-              $IN = $REQ.getInputStream();
-              ...
-              $U.unmarshal($IN);
-          - pattern: |
-              $IN = $REQ.getReader();
-              ...
-              $U.unmarshal($IN);
+          - patterns:
+              - pattern: $U.unmarshal($IN)
+              - pattern-inside: |
+                  $IN = $REQ.getInputStream();
+                  ...
+          - patterns:
+              - pattern: $U.unmarshal($IN)
+              - pattern-inside: |
+                  $IN = $REQ.getReader();
+                  ...
       # The hardened levels wrap the stream in a SAXSource built from a
       # configured factory; that shape is the fix, not the finding.
       - pattern-not: $U.unmarshal(new SAXSource(...))

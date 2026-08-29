@@ -191,3 +191,46 @@ def test_exclude_paths_actually_keep_files_out_of_the_scan(tmp_path):
     )
     leaked = sorted(expected_excluded & scanned)
     assert not leaked, f"exclude_paths did not keep these out of the scan: {leaked}"
+
+
+def test_every_custom_rule_file_has_an_annotated_fixture():
+    """A custom rule with no fixture is a rule nothing checks. Kept separate
+    from the semgrep-backed test below so the gap is reported even on a
+    machine without semgrep installed."""
+    for path in custom_rule_files():
+        fixture = path.with_suffix(".java")
+        assert fixture.exists(), (
+            f"{path.name} has no {fixture.name} next to it -- every rule under "
+            "rules/custom/ needs an annotated fixture (see the vendored rules "
+            "for the // ruleid: / // ok: convention)"
+        )
+
+
+def test_every_custom_rule_is_exercised_by_its_fixture():
+    """`semgrep --test` reports a rule with zero annotations as passing, so a
+    rule can be added to an existing file and be covered by nothing."""
+    for path, rule in custom_rules():
+        fixture = path.with_suffix(".java").read_text(encoding="utf-8")
+        assert f"ruleid: {rule['id']}" in fixture, (
+            f"{path.with_suffix('.java').name} has no `// ruleid: {rule['id']}` case"
+        )
+        assert f"ok: {rule['id']}" in fixture, (
+            f"{path.with_suffix('.java').name} has no `// ok: {rule['id']}` case -- "
+            "a rule with only positive cases cannot catch over-matching"
+        )
+
+
+@pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
+def test_custom_rules_match_their_fixtures():
+    """The regression net for rules/custom/. Widening a pattern until it
+    swallows a hardened shape, or narrowing one until it drops the shape the
+    rule exists for, both look like a clean scan otherwise."""
+    for path in custom_rule_files():
+        proc = subprocess.run(
+            ["semgrep", "--test", "--metrics=off",
+             "--config", str(path), str(path.with_suffix(".java"))],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0 and "did not pass" not in proc.stdout, (
+            f"{path.name} does not match its fixture:\n{proc.stdout}\n{proc.stderr}"
+        )
