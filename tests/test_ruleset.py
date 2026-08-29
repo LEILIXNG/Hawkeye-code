@@ -39,6 +39,21 @@ def custom_rule_files():
     return sorted(p for p in CUSTOM_RULES_DIR.rglob("*") if p.suffix in (".yml", ".yaml"))
 
 
+# A rule's fixture is the sibling file with the same stem. The extension
+# follows the rule's target language rather than being assumed: the MyBatis
+# rule matches mapper XML, so hard-coding .java would have silently reported
+# it as having no fixture.
+FIXTURE_SUFFIXES = (".java", ".xml")
+
+
+def fixture_for(rule_path):
+    for suffix in FIXTURE_SUFFIXES:
+        candidate = rule_path.with_suffix(suffix)
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def custom_rules():
     for path in custom_rule_files():
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -198,11 +213,10 @@ def test_every_custom_rule_file_has_an_annotated_fixture():
     from the semgrep-backed test below so the gap is reported even on a
     machine without semgrep installed."""
     for path in custom_rule_files():
-        fixture = path.with_suffix(".java")
-        assert fixture.exists(), (
-            f"{path.name} has no {fixture.name} next to it -- every rule under "
-            "rules/custom/ needs an annotated fixture (see the vendored rules "
-            "for the // ruleid: / // ok: convention)"
+        assert fixture_for(path) is not None, (
+            f"{path.name} has no {' or '.join(path.stem + s for s in FIXTURE_SUFFIXES)} "
+            "next to it -- every rule under rules/custom/ needs an annotated fixture "
+            "(see the vendored rules for the ruleid: / ok: convention)"
         )
 
 
@@ -210,12 +224,16 @@ def test_every_custom_rule_is_exercised_by_its_fixture():
     """`semgrep --test` reports a rule with zero annotations as passing, so a
     rule can be added to an existing file and be covered by nothing."""
     for path, rule in custom_rules():
-        fixture = path.with_suffix(".java").read_text(encoding="utf-8")
+        fixture_path = fixture_for(path)
+        assert fixture_path is not None, path.name
+        fixture = fixture_path.read_text(encoding="utf-8")
         assert f"ruleid: {rule['id']}" in fixture, (
-            f"{path.with_suffix('.java').name} has no `// ruleid: {rule['id']}` case"
+            f"{fixture_path.name} has no `ruleid: {rule['id']}` case"
         )
-        assert f"ok: {rule['id']}" in fixture, (
-            f"{path.with_suffix('.java').name} has no `// ok: {rule['id']}` case -- "
+        # `todook:` counts: it is a negative case the rule is known to fail,
+        # recorded on purpose, and it still fails loudly once fixed.
+        assert any(f"{marker}: {rule['id']}" in fixture for marker in ("ok", "todook")), (
+            f"{fixture_path.name} has no `ok: {rule['id']}` case -- "
             "a rule with only positive cases cannot catch over-matching"
         )
 
@@ -228,7 +246,7 @@ def test_custom_rules_match_their_fixtures():
     for path in custom_rule_files():
         proc = subprocess.run(
             ["semgrep", "--test", "--metrics=off",
-             "--config", str(path), str(path.with_suffix(".java"))],
+             "--config", str(path), str(fixture_for(path))],
             capture_output=True, text=True,
         )
         assert proc.returncode == 0 and "did not pass" not in proc.stdout, (

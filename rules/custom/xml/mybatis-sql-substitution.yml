@@ -1,0 +1,79 @@
+# SQL injection through MyBatis `${}` substitution in mapper XML.
+#
+# Found by scanning a real 13-module Spring application (804 Java files, 41
+# MyBatis mappers) rather than the teaching corpus: 41 substitutions across
+# 13 mapper files, and the scan produced zero candidates for any of them.
+#
+# The cause is not a missing sink shape or an unfollowable flow, it is that
+# the entire mounted ruleset is `languages: [java]` and a MyBatis mapper is
+# XML. Ten of the thirteen modules depend on MyBatis, so on this codebase
+# that is a whole vulnerability class with no coverage at all -- and MyBatis
+# is close to universal in Chinese enterprise Spring work.
+#
+# `${}` is string substitution straight into the SQL text; `#{}` is the
+# bound parameter. That is MyBatis's own documented distinction, so every
+# `${}` in a mapper is a candidate by definition and there is no safe subset
+# to carve out. Checked against what the real project actually contains:
+#
+#   18  a whole SQL predicate           `and ${vulInfoRange}`
+#    9  ORDER BY                        `order by ${sort}`
+#    7  an identifier position          `${codeType} as vulCode`, `a.${sl}`
+#    6  inside a string literal         `'[${vulIds}]'`   <- quote-breakable
+#    1  an OGNL static call             `${@com.x.ListUtils@asJsonArray(l)}`
+#
+# ORDER BY is the one that makes this class so common: a bound parameter
+# cannot carry a column name, so developers reach for `${}` and the sort
+# column arrives straight from the query string. The OGNL form is kept
+# rather than excluded -- it still substitutes text, and whether its input
+# is attacker-controlled is a judgement for the verify stage.
+#
+# Scope limits worth knowing:
+#   - Selection is by filename (*Mapper.xml / *Dao.xml), the MyBatis
+#     convention, because a per-match rule cannot also assert a file-level
+#     condition like "this document has a <mapper namespace=...> root". A
+#     file following that naming convention without being a mapper would be
+#     a false positive; none exists in the corpus.
+#   - MyBatis annotations in Java (@Select("... ${x} ...")) are not covered.
+#     The corpus has two such annotations in 804 files, so the XML form is
+#     where the risk actually lives here.
+#   - The verify stage has weaker context for this rule than for the Java
+#     ones: scanner/callgraph.py is Java-only, so an XML sink gets no call
+#     chain and the model sees the SQL fragment and the parameter name
+#     without the mapper interface behind it. Findings here should be read
+#     with that in mind until the call graph can cross into mappers.
+rules:
+  - id: mybatis-string-substitution-in-sql
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include:
+        - "*Mapper.xml"
+        - "*Dao.xml"
+    message: >
+      This MyBatis mapper substitutes a value directly into the SQL text with
+      `${...}` instead of binding it with `#{...}`. Substitution happens
+      before the statement is prepared, so anything an attacker can steer
+      into this value becomes SQL. Use `#{...}`; where the position cannot
+      take a bound parameter -- an ORDER BY column, a table or column name --
+      validate the value against a fixed allowlist in the mapper's Java
+      caller before it reaches the statement.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-regex: \$\{[^}]+\}
+      # MyBatis Generator emits `${criterion.condition}` inside the
+      # Example_Where_Clause it generates, and the value is built by its own
+      # generated addCriterion("col =", ...) calls with hardcoded operator
+      # strings -- the caller never supplies it. On the corpus this single
+      # token was 16 of 41 findings, 39% of the rule's output, all of it
+      # unreviewable boilerplate.
+      #
+      # Note what is NOT excluded: `${orderByClause}`, from the same
+      # generated file, stays. That one is set by the application through
+      # example.setOrderByClause(...) and taking that string from a request
+      # is one of the most common real MyBatis injections there is.
+      - pattern-not-regex: \$\{criterion\.condition\}

@@ -87,8 +87,15 @@ rules:
           - pattern: Path.of($PREFIX + $SEGMENT)
           - pattern: new ClassPathResource($PREFIX + $SEGMENT)
           # Path joins, where a bare non-constant argument is already the
-          # traversal shape.
-          - pattern: $P.resolve($SEGMENT)
+          # traversal shape. The receiver is type-constrained because
+          # `resolve` is a common method name: on a real 13-module project
+          # an untyped `$P.resolve($SEGMENT)` matched six HttpStatus.resolve
+          # (int) calls, which have nothing to do with paths. Semgrep infers
+          # the type from the declaration, so `Path root` still matches and
+          # a receiver that is a method call chain no longer does -- which
+          # also drops a duplicate report of PreflightController's own
+          # finding one line above it.
+          - pattern: (java.nio.file.Path $P).resolve($SEGMENT)
           - pattern: $F.transferTo($SEGMENT)
       - metavariable-pattern:
           metavariable: $SEGMENT

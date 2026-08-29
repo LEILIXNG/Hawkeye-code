@@ -27,7 +27,7 @@
     "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/PreflightController.java",
     "line": 46,
     "expected_reachable": "yes",
-    "note": "path traversal, fileName resolved without normalization/whitelist"
+    "note": "path traversal, fileName resolved without normalization/whitelist. The resolve() one line above used to be labelled separately; the custom rule now type-constrains its receiver and no longer double-reports this sink"
   },
   {
     "file": "src/main/java/org/sasanlabs/service/vulnerability/commandInjection/CommandInjection.java",
@@ -106,12 +106,6 @@
     "line": 118,
     "expected_reachable": "yes",
     "note": "path traversal via upload: root.resolve(fileName) with fileName from MultipartFile.getOriginalFilename(); LEVEL_1 passes the validator () -> true. Path.resolve is not in any mounted rule's sink list"
-  },
-  {
-    "file": "src/main/java/org/sasanlabs/service/vulnerability/fileupload/PreflightController.java",
-    "line": 43,
-    "expected_reachable": "yes",
-    "note": "same vulnerability as the labelled :46, one line earlier -- :43 is the resolve(fileName) where traversal happens, :46 the FileInputStream that reads it"
   },
   {
     "file": "src/main/java/org/sasanlabs/benchmark/service/BenchmarkResultWriter.java",

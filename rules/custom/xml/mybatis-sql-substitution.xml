@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+Annotated fixture for mybatis-sql-substitution.yml, run by `semgrep --test`
+(tests/test_ruleset.py::test_custom_rules_match_their_fixtures).
+
+Every ruleid: case is a shape taken from the real corpus this rule was
+written against. The ok: cases are the whole reason the rule can be this
+blunt: it must fire on the substitution form and stay silent on the bound
+parameter form, and those two differ by a single character.
+-->
+<mapper namespace="com.example.VulnerabilityMapper">
+
+    <select id="listSafely" resultType="Vuln">
+        <!-- ok: mybatis-string-substitution-in-sql -->
+        select * from vuln where id = #{id} and status = #{status}
+    </select>
+
+    <select id="listOrdered" resultType="Vuln">
+        select * from vuln
+        <!-- ruleid: mybatis-string-substitution-in-sql -->
+        order by ${sort}
+    </select>
+
+    <select id="listFiltered" resultType="Vuln">
+        select * from vuln where 1 = 1
+        <!-- ruleid: mybatis-string-substitution-in-sql -->
+        and ${vulInfoRange}
+    </select>
+
+    <select id="listByIds" resultType="Vuln">
+        <!-- ruleid: mybatis-string-substitution-in-sql -->
+        select jsonb_array_elements_text('[${vulIds}]') as vul_id
+    </select>
+
+    <select id="listByColumn" resultType="Vuln">
+        <!-- ruleid: mybatis-string-substitution-in-sql -->
+        select ${codeType} as vulCode from vuln
+    </select>
+
+    <select id="listByOgnl" resultType="Vuln">
+        <!-- ruleid: mybatis-string-substitution-in-sql -->
+        select jsonb_array_elements_text('${@com.example.ListUtils@asJsonArray(ids)}') as id
+    </select>
+
+    <!--
+    MyBatis Generator boilerplate: the condition text is produced by the
+    generator's own addCriterion() calls, never by the caller.
+    -->
+    <sql id="Example_Where_Clause">
+        <!-- ok: mybatis-string-substitution-in-sql -->
+        and ${criterion.condition}
+    </sql>
+
+    <!--
+    From the very same generated file, and deliberately still a finding:
+    example.setOrderByClause(...) takes whatever the application passes it,
+    and passing a request parameter is a classic MyBatis injection.
+    -->
+    <select id="listGenerated" resultType="Vuln">
+        select * from vuln
+        <!-- ruleid: mybatis-string-substitution-in-sql -->
+        order by ${orderByClause}
+    </select>
+
+    <update id="updateSafely">
+        <!-- ok: mybatis-string-substitution-in-sql -->
+        update vuln set name = #{name} where id = #{id}
+    </update>
+
+    <!--
+    Known limitation, recorded rather than hidden: the rule is a text regex
+    in generic mode, so it cannot tell that a substitution sits inside an
+    XML comment and is therefore not executed. Commented-out SQL is common
+    in real mappers. todook: means "this ought to be ok and currently is
+    not" -- the day the rule learns about comments, this line starts
+    failing and says so.
+    -->
+    <select id="listCommentedOut" resultType="Vuln">
+        select * from vuln
+        <!-- todook: mybatis-string-substitution-in-sql -->
+        <!-- order by ${legacySort} -->
+    </select>
+
+</mapper>
