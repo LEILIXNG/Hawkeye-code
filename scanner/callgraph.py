@@ -38,6 +38,30 @@ REQUEST_PARAM_ANNOTATIONS = frozenset({
 })
 REQUEST_PARAM_TYPES = frozenset({"HttpServletRequest", "MultipartFile", "HttpEntity"})
 
+# Framework callbacks that carry externally supplied data the same way an HTTP
+# handler does: the payload is written by whoever put it on the queue or the
+# socket. @Scheduled, @PostConstruct and @Bean are deliberately absent -- the
+# framework invokes those too, but with nothing a user chose.
+MESSAGE_ENTRY_ANNOTATIONS = frozenset({
+    "KafkaListener", "RabbitListener", "RabbitHandler", "JmsListener",
+    "SqsListener", "RocketMQMessageListener", "StreamListener",
+    "MessageMapping", "SubscribeMapping", "ExceptionHandler",
+})
+
+# The servlet/filter entry points, recognised by supertype rather than by name
+# alone: `service` and `doFilter` are ordinary words, and treating every method
+# called `service` as a request handler would invent entry points all over a
+# Spring codebase. rules/ruleset.yml mounts java/servlets/security, so the
+# ruleset can already produce candidates in code shaped like this.
+SERVLET_SUPERTYPES = frozenset({
+    "HttpServlet", "GenericServlet", "Servlet", "Filter", "HttpFilter",
+    "OncePerRequestFilter", "HandlerInterceptor", "HandlerInterceptorAdapter",
+})
+SERVLET_ENTRY_METHODS = frozenset({
+    "doGet", "doPost", "doPut", "doDelete", "doHead", "doOptions", "doTrace",
+    "service", "doFilter", "preHandle", "postHandle",
+})
+
 # MyBatis statement tags that a mapper interface method maps onto. <sql> is
 # deliberately absent: it is a fragment other statements <include>, not
 # something Java calls by name.
@@ -63,6 +87,23 @@ MAX_DEPTH = 7
 
 
 @dataclass
+class Owner:
+    """The class, interface or anonymous class body a method is declared in.
+
+    Tracked because "nothing calls this method" is not one situation but
+    several, and the supertype is what tells them apart. An @Override nobody
+    calls inside `new X509TrustManager() {...}` is a TLS callback the JDK
+    invokes; the same shape inside a class implementing the application's own
+    OaUpdateServiceInterface is a strategy the application dispatches, and can
+    carry a message payload. Handing the verify stage the type instead of a
+    shrug is the difference between a confident verdict and a coin flip.
+    """
+    name: str = ""
+    supertypes: tuple[str, ...] = ()
+    anonymous: bool = False
+
+
+@dataclass
 class Method:
     file: str
     name: str
@@ -70,6 +111,8 @@ class Method:
     start_line: int
     end_line: int
     return_type: str = ""
+    owner: Owner = field(default_factory=Owner)
+    overrides_supertype: bool = False
     entry_reason: str = ""
     # Whether entry_reason is proof or only a hint. A mapping annotation, or
     # a parameter the framework binds from the request, only ever appears on
@@ -91,12 +134,25 @@ class Call:
     arity: int
     line: int
     caller: Method | None
+    # `this.x()` / `super.x()`, which cannot land in an unrelated class. The
+    # rest of the graph matches on name and arity alone, and `run()` is the
+    # case that proves the cost: MockUserLoginInit.refreshMockUser() calls
+    # `this.run()`, and without this flag that edge bridged into a completely
+    # different module's OracleAQConsumer.run(), inventing a chain from a
+    # @KafkaListener to a JMS connector it has nothing to do with.
+    receiver_is_self: bool = False
 
 
 @dataclass
 class Index:
     methods: list[Method] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
+    # Type name -> its direct supertypes, and the transitive closure of that,
+    # built once by index_workspace. Real hierarchies are more than one level
+    # deep -- FileInfoDataUpload extends AbstractDeviceDataUpload extends
+    # AbstractDataUpload -- and a one-level check silently drops the middle.
+    supertypes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    ancestors: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def methods_named(self, name: str, arity: int) -> list[Method]:
         return [m for m in self.methods if m.name == name and m.arity == arity]
@@ -120,14 +176,43 @@ def _annotation_names(node: Node, src: bytes) -> set[str]:
     return names
 
 
-def _entry_reason(method_node: Node, src: bytes) -> tuple[str, bool]:
+def _type_names(node: Node | None, src: bytes) -> tuple[str, ...]:
+    """The bare type names under an `extends`/`implements` clause, generics and
+    package qualifiers stripped, so `implements java.util.List<String>` and
+    `implements List<String>` both read as `List`."""
+    if node is None:
+        return ()
+    names = []
+    for child in node.children:
+        if child.type in ("type_identifier", "scoped_type_identifier", "generic_type"):
+            names.append(_text(child, src).split("<")[0].split(".")[-1].strip())
+        elif child.type == "type_list":
+            names.extend(_type_names(child, src))
+    return tuple(names)
+
+
+def _owner_of(node: Node, src: bytes) -> Owner:
+    name_node = node.child_by_field_name("name")
+    return Owner(
+        name=_text(name_node, src) if name_node is not None else "",
+        supertypes=(_type_names(node.child_by_field_name("superclass"), src)
+                    + _type_names(node.child_by_field_name("interfaces"), src)),
+    )
+
+
+def _entry_reason(method_node: Node, src: bytes, owner: Owner) -> tuple[str, bool]:
     """Why a request could enter here, and whether that is proof or a hint.
 
     Returns ("", False) when nothing suggests a request can enter.
     """
+    if method_node.child_by_field_name("name") is not None and owner.supertypes:
+        name = _text(method_node.child_by_field_name("name"), src)
+        if name in SERVLET_ENTRY_METHODS and set(owner.supertypes) & SERVLET_SUPERTYPES:
+            return f"{name}() of a {sorted(set(owner.supertypes) & SERVLET_SUPERTYPES)[0]}", True
+
     modifiers = next((c for c in method_node.children if c.type == "modifiers"), None)
     if modifiers is not None:
-        mapped = _annotation_names(modifiers, src) & REQUEST_MAPPING_ANNOTATIONS
+        mapped = _annotation_names(modifiers, src) & (REQUEST_MAPPING_ANNOTATIONS | MESSAGE_ENTRY_ANNOTATIONS)
         if mapped:
             return f"@{sorted(mapped)[0]}", True
 
@@ -256,22 +341,64 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
         except OSError:
             continue
         rel = str(path.relative_to(root)).replace("\\", "/")
-        _walk(parser.parse(src).root_node, src, rel, index, current=None)
+        _walk(parser.parse(src).root_node, src, rel, index, current=None, owner=Owner())
+    _build_ancestors(index)
     index_mybatis_mappers(root, index)
     return index
 
 
-def _walk(node: Node, src: bytes, rel: str, index: Index, current: Method | None) -> None:
+def _build_ancestors(index: Index) -> None:
+    """Transitive closure of Index.supertypes, cycle-safe. Java forbids cyclic
+    inheritance, but this reads whatever is on disk, including half-written or
+    generated sources."""
+    def walk(name: str, seen: set[str]) -> frozenset[str]:
+        if name in index.ancestors:
+            return index.ancestors[name]
+        reached: set[str] = set()
+        for parent in index.supertypes.get(name, ()):
+            if parent in seen:
+                continue
+            reached.add(parent)
+            reached |= walk(parent, seen | {parent})
+        result = frozenset(reached)
+        index.ancestors[name] = result
+        return result
+
+    for type_name in list(index.supertypes):
+        walk(type_name, {type_name})
+
+
+TYPE_DECLARATIONS = ("class_declaration", "interface_declaration",
+                     "enum_declaration", "record_declaration")
+
+
+def _walk(node: Node, src: bytes, rel: str, index: Index,
+          current: Method | None, owner: Owner) -> None:
+    if node.type in TYPE_DECLARATIONS:
+        owner = _owner_of(node, src)
+        if owner.name:
+            index.supertypes[owner.name] = owner.supertypes
+    elif node.type == "object_creation_expression" and any(c.type == "class_body" for c in node.children):
+        # `new X509TrustManager() { ... }`: the type being instantiated is the
+        # only name the methods inside have, and it is the informative one.
+        type_node = node.child_by_field_name("type")
+        if type_node is not None:
+            owner = Owner(name=_text(type_node, src).split("<")[0].split(".")[-1], anonymous=True)
+
     if node.type in ("method_declaration", "constructor_declaration"):
         name_node = node.child_by_field_name("name")
         if name_node is not None:
-            reason, definitive = _entry_reason(node, src)
+            reason, definitive = _entry_reason(node, src, owner)
             return_node = node.child_by_field_name("type")
+            modifiers = next((c for c in node.children if c.type == "modifiers"), None)
             current = Method(
                 file=rel,
                 name=_text(name_node, src),
                 arity=_arity(node, "parameters"),
                 return_type=_text(return_node, src) if return_node is not None else "",
+                owner=owner,
+                overrides_supertype=(modifiers is not None
+                                     and "Override" in _annotation_names(modifiers, src)),
                 start_line=node.start_point[0] + 1,
                 end_line=node.end_point[0] + 1,
                 entry_reason=reason,
@@ -281,16 +408,18 @@ def _walk(node: Node, src: bytes, rel: str, index: Index, current: Method | None
     elif node.type == "method_invocation":
         name_node = node.child_by_field_name("name")
         if name_node is not None:
+            receiver = node.child_by_field_name("object")
             index.calls.append(Call(
                 file=rel,
                 callee=_text(name_node, src),
                 arity=_arity(node, "arguments"),
                 line=node.start_point[0] + 1,
                 caller=current,
+                receiver_is_self=receiver is not None and receiver.type in ("this", "super"),
             ))
 
     for child in node.children:
-        _walk(child, src, rel, index, current)
+        _walk(child, src, rel, index, current, owner)
 
 
 def enclosing_method(index: Index, file: str, line: int) -> Method | None:
@@ -302,11 +431,35 @@ def enclosing_method(index: Index, file: str, line: int) -> Method | None:
     return min(holding, key=lambda m: m.end_line - m.start_line, default=None)
 
 
+def _self_call_can_reach(index: Index, call: Call, method: Method) -> bool:
+    """Whether a `this.x()` / `super.x()` call site could be calling `method`.
+
+    Only ever consulted for self-receiver calls, and only ever used to *drop*
+    an edge: such a call resolves inside the caller's own class hierarchy,
+    never in an unrelated one. Owners we could not name are let through -- a
+    lost caller costs the answer, and this exists to remove edges that are
+    provably wrong, not merely unproven.
+
+    Both directions of the hierarchy count. `this.x()` in a subclass can land
+    on a base-class method, and `this.x()` in an abstract base lands on the
+    subclass override -- that is the template-method pattern, and checking
+    only one direction quietly deletes it.
+    """
+    caller_owner, target_owner = call.caller.owner, method.owner
+    if not caller_owner.name or not target_owner.name:
+        return True
+    if target_owner.name == caller_owner.name:
+        return True
+    return (target_owner.name in index.ancestors.get(caller_owner.name, ())
+            or caller_owner.name in index.ancestors.get(target_owner.name, ()))
+
+
 def callers_of(index: Index, method: Method) -> list[Call]:
     return [c for c in index.calls
             if c.callee == method.name
             and (method.arity == ANY_ARITY or c.arity == method.arity)
-            and c.caller is not None]
+            and c.caller is not None
+            and (not c.receiver_is_self or _self_call_can_reach(index, c, method))]
 
 
 def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = MAX_DEPTH) -> list[list[Call]]:

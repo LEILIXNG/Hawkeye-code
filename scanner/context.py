@@ -10,7 +10,7 @@ callers answer.
 """
 from pathlib import Path
 
-from scanner.callgraph import enclosing_method, trace_to_entry_points
+from scanner.callgraph import MAX_DEPTH, callers_of, enclosing_method, trace_to_entry_points
 
 
 CONTEXT_WINDOW = 15  # lines of code above/below each location to include
@@ -89,6 +89,61 @@ MAX_CALLER_CHAINS = 4  # a shared sink can have many; four is enough to show the
 CALLER_WINDOW = 8
 
 
+def _owner_phrase(method) -> str:
+    if not method.owner.name:
+        return ""
+    if method.owner.anonymous:
+        return f"an anonymous {method.owner.name}"
+    if method.owner.supertypes:
+        return f"{method.owner.name} ({', '.join(method.owner.supertypes)})"
+    return method.owner.name
+
+
+def _no_entry_point(index, method) -> str:
+    """Why no call path was found -- which is three different situations, and
+    the verify stage answers them differently.
+
+    The single sentence this replaced ("either it is dead code, or it is called
+    from a framework or injection point this name-based call graph cannot see")
+    described all three at once, and reads as a shrug. It is the line behind
+    most of the corpus's `uncertain` verdicts, and behind a pair of false
+    positives: an empty checkServerTrusted() in an anonymous X509TrustManager
+    came back "reachable" because nothing told the model that no call site in
+    the codebase hands it anything.
+    """
+    if method is None:
+        return ("The call graph could not place this line inside a method -- a field "
+                "initialiser, a static block, or a file it failed to parse -- so it has "
+                "nothing to say about how a request reaches it.")
+
+    # A method calling itself -- recursion, or the `super.x()` inside an
+    # override -- is not somebody else calling it, and counting it as one hid
+    # exactly the callback case below. Matched on the owning type rather than
+    # the file, because a module shipped twice under two paths (see
+    # dedup_copies) otherwise looks like each copy calling the other.
+    def identity(m):
+        return (m.owner.name, m.name, m.arity)
+
+    others = [c for c in callers_of(index, method) if identity(c.caller) != identity(method)]
+    if others:
+        return (f"{method.name}() is called only from other internal code: no chain from a "
+                f"request entry point reaches it within {MAX_DEPTH} hops. It may still be "
+                "reachable through a dispatch this name-based call graph cannot follow, such "
+                "as a strategy registry keyed by a string, reflection, or a dynamic proxy.")
+
+    owner = _owner_phrase(method)
+    where = f", declared in {owner}," if owner else ""
+    if method.overrides_supertype or method.owner.anonymous:
+        return (f"Nothing in this codebase calls {method.name}(){where} and it overrides a "
+                "supertype method, so it is a callback: whatever consumes that type invokes "
+                "it, not application code. No call site here hands it an argument, so judge "
+                "the parameters by what that type's contract supplies.")
+
+    return (f"Nothing in this codebase calls {method.name}(){where} so no call site shows what "
+            "its parameters hold. It is either unused, or invoked by name through reflection, "
+            "configuration or generated code.")
+
+
 def build_caller_context(target: Path, candidate: dict, index) -> str:
     """The call paths by which a request can reach this sink, with the code
     at each entry point.
@@ -103,12 +158,8 @@ def build_caller_context(target: Path, candidate: dict, index) -> str:
     """
     chains = trace_to_entry_points(index, candidate["sink_file"], candidate["sink_line"])
     if not chains:
-        return (
-            "### Call path\n"
-            "No request entry point reaches this method within the searched depth. "
-            "Either it is dead code, or it is called from a framework or injection "
-            "point this name-based call graph cannot see."
-        )
+        method = enclosing_method(index, candidate["sink_file"], candidate["sink_line"])
+        return "### Call path\n" + _no_entry_point(index, method)
     if chains == [[]]:
         return "### Call path\nThe sink sits directly inside a request handler."
 

@@ -478,3 +478,159 @@ class TestMyBatisMappers:
             "mapper/Broken.xml": '<mapper namespace="com.x.A"><select id="q">unclosed',
         }))
         assert idx.methods == []
+
+
+class TestFrameworkEntryPoints:
+    def test_a_message_listener_is_an_entry_point(self, tmp_path):
+        """A Kafka payload is written by whoever put it on the topic, which
+        makes the listener a request entry point in the sense that matters."""
+        src = """
+            class Consumer {
+                @KafkaListener(topics = "t")
+                public void listener(String value) { handle(value); }
+                void handle(String v) { exec(v); }
+            }
+        """
+        idx = index_workspace(workspace(tmp_path, {"A.java": src}))
+        sink_line = next(i for i, l in enumerate(src.splitlines(), 1) if "exec(v)" in l)
+        chains = trace_to_entry_points(idx, "A.java", sink_line)
+        assert chains and chains[0][-1].caller.entry_reason == "@KafkaListener"
+
+    def test_a_scheduled_job_is_not_an_entry_point(self, tmp_path):
+        """The framework invokes it, but with nothing a user chose. Calling it
+        a request entry point would tell the verify stage a lie."""
+        src = """
+            class Job {
+                @Scheduled(cron = "0 0 * * * *")
+                public void nightly() { exec("x"); }
+            }
+        """
+        idx = index_workspace(workspace(tmp_path, {"A.java": src}))
+        assert not [m for m in idx.methods if m.is_entry_point]
+
+    def test_a_servlet_method_is_an_entry_point_via_its_supertype(self, tmp_path):
+        src = """
+            class Upload extends HttpServlet {
+                protected void doPost(HttpServletRequest req, HttpServletResponse resp) { exec(req); }
+            }
+        """
+        idx = index_workspace(workspace(tmp_path, {"A.java": src}))
+        method = next(m for m in idx.methods if m.name == "doPost")
+        assert method.entry_definitive and "HttpServlet" in method.entry_reason
+
+    def test_the_same_method_name_without_the_supertype_is_not(self, tmp_path):
+        """`service` and `doFilter` are ordinary words; matching on the name
+        alone would invent entry points across a Spring codebase."""
+        idx = index_workspace(workspace(tmp_path, {"A.java": """
+            class Helper {
+                void service(String a) { exec(a); }
+            }
+        """}))
+        assert not [m for m in idx.methods if m.is_entry_point]
+
+
+class TestOwners:
+    def test_a_named_class_records_its_supertypes(self, tmp_path):
+        idx = index_workspace(workspace(tmp_path, {"A.java": """
+            class Impl extends Base implements Runnable, java.io.Closeable {
+                public void run() {}
+            }
+        """}))
+        owner = next(m for m in idx.methods if m.name == "run").owner
+        assert owner.name == "Impl"
+        assert set(owner.supertypes) == {"Base", "Runnable", "Closeable"}
+        assert not owner.anonymous
+
+    def test_an_anonymous_class_takes_the_type_it_implements(self, tmp_path):
+        """The name is the whole point: `checkServerTrusted` says nothing, and
+        `an anonymous X509TrustManager` says it is a TLS callback."""
+        idx = index_workspace(workspace(tmp_path, {"A.java": """
+            class F {
+                void build() {
+                    TrustManager tm = new X509TrustManager() {
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] c, String t) {}
+                    };
+                }
+            }
+        """}))
+        method = next(m for m in idx.methods if m.name == "checkServerTrusted")
+        assert method.owner.name == "X509TrustManager" and method.owner.anonymous
+        assert method.overrides_supertype
+
+    def test_supertypes_are_closed_transitively(self, tmp_path):
+        idx = index_workspace(workspace(tmp_path, {
+            "A.java": "class Leaf extends Middle {}",
+            "B.java": "class Middle extends Root {}",
+            "C.java": "class Root {}",
+        }))
+        assert idx.ancestors["Leaf"] == frozenset({"Middle", "Root"})
+
+    def test_an_inheritance_cycle_does_not_hang(self, tmp_path):
+        """Java forbids it; this reads whatever is on disk, generated sources
+        and half-written files included."""
+        idx = index_workspace(workspace(tmp_path, {
+            "A.java": "class A extends B {}",
+            "B.java": "class B extends A {}",
+        }))
+        assert "B" in idx.ancestors["A"]
+
+
+class TestSelfReceiverCalls:
+    def test_this_call_does_not_bridge_into_an_unrelated_class(self, tmp_path):
+        """The measured case: MockUserLoginInit.refreshMockUser() calls
+        `this.run()`, and name-and-arity matching alone bridged that into a
+        different module's OracleAQConsumer.run(), inventing a chain from a
+        @KafkaListener to a JMS connector it has nothing to do with."""
+        idx = index_workspace(workspace(tmp_path, {
+            "Init.java": """
+                class Init {
+                    @KafkaListener(topics = "t")
+                    public void listener(String v) { this.run(); }
+                    public void run() {}
+                }
+            """,
+            "Consumer.java": """
+                class Consumer {
+                    public void run() { exec("x"); }
+                }
+            """,
+        }))
+        assert trace_to_entry_points(idx, "Consumer.java", 3) == []
+
+    def test_this_call_still_reaches_an_override_two_levels_down(self, tmp_path):
+        """The template-method shape, and the reason the hierarchy is closed
+        transitively: FileInfoDataUpload extends AbstractDeviceDataUpload
+        extends AbstractDataUpload, and the `this.getData()` that reaches the
+        sink is written in the outermost base."""
+        idx = index_workspace(workspace(tmp_path, {
+            "Base.java": """
+                abstract class Base {
+                    @PostMapping("/x")
+                    public void handler() { this.getData(); }
+                    abstract void getData();
+                }
+            """,
+            "Middle.java": "abstract class Middle extends Base {}",
+            "Leaf.java": """
+                class Leaf extends Middle {
+                    void getData() { exec("x"); }
+                }
+            """,
+        }))
+        chains = trace_to_entry_points(idx, "Leaf.java", 3)
+        assert chains and chains[0][-1].caller.name == "handler"
+
+    def test_an_unnamed_owner_keeps_the_edge(self, tmp_path):
+        """Dropping an edge is only allowed when it is provably wrong. A
+        statement in a mapper XML has no owner type at all."""
+        idx = index_workspace(workspace(tmp_path, {
+            "mapper/M.xml": '<mapper namespace="com.x.M"><select id="q">select ${a}</select></mapper>',
+            "Svc.java": """
+                class Svc {
+                    @PostMapping("/x")
+                    public void handler() { this.q(); }
+                }
+            """,
+        }))
+        assert trace_to_entry_points(idx, "mapper/M.xml", 1)

@@ -14,6 +14,7 @@ from pathlib import Path
 from scanner.callgraph import index_workspace
 from scanner.context import (
     CALLEE_MAX_LINES,
+    build_caller_context,
     CONTEXT_WINDOW,
     MAX_CALLEE_BODIES,
     build_callee_context,
@@ -351,3 +352,65 @@ class TestCalleeContext:
 
         assert "unrelated-marker" not in block
         assert "also-unrelated-marker" not in block
+
+
+class TestNoEntryPointExplanation:
+    """The one sentence this replaced described three different situations at
+    once and read as a shrug, which is where most of the corpus's `uncertain`
+    verdicts came from -- and where two false positives came from, an empty
+    checkServerTrusted() reported reachable because nothing said no call site
+    hands it anything."""
+
+    def context_for(self, tmp_path, files, file, line):
+        root = workspace(tmp_path, files)
+        idx = index_workspace(root)
+        candidate = {"sink_file": file, "sink_line": line, "source_file": file, "source_line": line}
+        return build_caller_context(root, candidate, idx)
+
+    def test_internal_callers_but_no_handler_says_so(self, tmp_path):
+        text = self.context_for(tmp_path, {"A.java": """
+            class A {
+                void caller() { helper("x"); }
+                void helper(String a) { exec(a); }
+            }
+        """}, "A.java", 4)
+        assert "called only from other internal code" in text
+        assert "strategy registry" in text
+
+    def test_a_method_nothing_calls_says_nothing_calls_it(self, tmp_path):
+        text = self.context_for(tmp_path, {"A.java": """
+            class ExportUtil {
+                public static void unZipFiles(String zip, String dir) { exec(dir); }
+            }
+        """}, "A.java", 3)
+        assert "Nothing in this codebase calls unZipFiles()" in text
+        assert "declared in ExportUtil" in text
+        assert "reflection" in text
+
+    def test_an_uncalled_override_is_named_as_a_callback(self, tmp_path):
+        text = self.context_for(tmp_path, {"A.java": """
+            class F {
+                void build() {
+                    TrustManager tm = new X509TrustManager() {
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] c, String t) { exec(c); }
+                    };
+                }
+            }
+        """}, "A.java", 6)
+        assert "an anonymous X509TrustManager" in text
+        assert "callback" in text
+
+    def test_a_super_call_inside_an_override_is_not_a_caller(self, tmp_path):
+        """`super.prepareConnection(...)` is the method calling itself, and
+        counting it as somebody else's call hid the callback case."""
+        text = self.context_for(tmp_path, {"A.java": """
+            class Factory extends SimpleClientHttpRequestFactory {
+                @Override
+                protected void prepareConnection(HttpURLConnection c, String m) {
+                    exec(c);
+                    super.prepareConnection(c, m);
+                }
+            }
+        """}, "A.java", 5)
+        assert "callback" in text
