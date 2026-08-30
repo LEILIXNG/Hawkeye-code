@@ -114,12 +114,30 @@ def _card_html(item: dict) -> str:
            &nbsp;·&nbsp; <strong data-i18n="card.source"></strong> {html.escape(item["source_file"])}:{item["source_line"]}</p>
         {f'<p><strong data-i18n="card.confidence"></strong> {html.escape(str(confidence))}</p>' if confidence is not None else ""}
         {_duplicates_html(item)}
-        <p><strong data-i18n="card.reasoning"></strong> {html.escape(finding.get("reasoning") or "")}</p>
-        {f'<p><strong data-i18n="card.exploit"></strong> {html.escape(finding.get("exploit_scenario") or "")}</p>' if finding.get("exploit_scenario") else ""}
-        {f'<p class="remediation"><strong data-i18n="card.remediation"></strong> {html.escape(finding.get("remediation") or "")}</p>' if finding.get("remediation") else ""}
+        <p><strong data-i18n="card.reasoning"></strong> {_bilingual(finding, "reasoning")}</p>
+        {f'<p><strong data-i18n="card.exploit"></strong> {_bilingual(finding, "exploit_scenario")}</p>' if finding.get("exploit_scenario") else ""}
+        {f'<p class="remediation"><strong data-i18n="card.remediation"></strong> {_bilingual(finding, "remediation")}</p>' if finding.get("remediation") else ""}
       </div>
     </details>
     """
+
+
+def _bilingual(finding: dict, field: str) -> str:
+    """A span carrying both languages of one LLM free-text field, swapped by
+    the page's applyI18n() exactly like a data-i18n label.
+
+    Falls back to the single original on both sides when 04_translate.py has
+    not run, so an untranslated report renders precisely as it did before --
+    the stage is optional and the reader should not be able to tell it was
+    skipped except by the language not changing.
+    """
+    original = finding.get(field) or ""
+    zh = finding.get(f"{field}_zh") or original
+    en = finding.get(f"{field}_en") or original
+    if not original:
+        return ""
+    return (f'<span data-text-zh="{html.escape(zh)}" data-text-en="{html.escape(en)}">'
+            f'{html.escape(original)}</span>')
 
 
 def _duplicates_html(item: dict) -> str:
@@ -353,6 +371,13 @@ def render_html(verified: list[dict], project_name: str) -> str:
       if (typeof val === 'string') el.textContent = val;
     }});
     langToggle.textContent = t('langToggle');
+    // The LLM's own prose, carried in both languages by scanner/translate.py.
+    // Untranslated findings hold the same text in both attributes, so this
+    // is a no-op for them rather than a blank.
+    document.querySelectorAll('[data-text-zh]').forEach((el) => {{
+      const val = lang === 'zh' ? el.dataset.textZh : el.dataset.textEn;
+      if (typeof val === 'string') el.textContent = val;
+    }});
   }}
 
   langToggle.addEventListener('click', () => {{

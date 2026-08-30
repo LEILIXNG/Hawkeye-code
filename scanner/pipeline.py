@@ -22,7 +22,16 @@ from scanner.core import (
 )
 from scanner.ingest import safe_extract
 from scanner.render import render
-from scanner.verify import call_llm
+from scanner.translate import (
+    LANGUAGE_NAMES,
+    apply_translation,
+    build_translate_prompt,
+    finding_language,
+    needs_translation,
+    parse_translation,
+    validate_translation,
+)
+from scanner.verify import call_llm, call_llm_cached
 
 DEFAULT_CONFIGS = load_default_configs()
 EXCLUDED_RULES = load_excluded_rules()
@@ -42,6 +51,7 @@ def run_pipeline(
     provider,
     model: str,
     on_status: Callable[[str], None] = lambda status: None,
+    translate: bool = True,
 ) -> dict:
     """Runs the full A/B/C/E/G flow for one scan. Returns the same dict
     shape as scanner.render.render(). Raises PipelineError on failure;
@@ -77,6 +87,36 @@ def run_pipeline(
             verified.append({**candidate, "finding": finding})
     except Exception as e:
         raise PipelineError(f"verify failed: {e}") from e
+
+    # F: fill in the other language for the prose, so the report's zh/en
+    # toggle switches what the reader actually reads and not just the
+    # labels. Roughly doubles the LLM calls a scan makes, which is why it is
+    # a flag: on a rate-limited free endpoint that is the cost that matters.
+    # Never fatal -- an untranslated finding shows the same text under both
+    # toggles, which is what the report did before this stage existed.
+    if translate:
+        on_status("translating")
+        translate_template = (PROMPTS_DIR / "translate_finding.md").read_text(encoding="utf-8")
+        for i, item in enumerate(verified, 1):
+            finding = item["finding"]
+            if not needs_translation(finding):
+                continue
+            source = finding_language(finding)
+            target = "en" if source == "zh" else "zh"
+            print(f"[pipeline] translating {i}/{len(verified)} {source}->{target}", file=sys.stderr)
+            name = LANGUAGE_NAMES[target]
+            try:
+                parsed = call_llm_cached(
+                    provider, model,
+                    build_translate_prompt(translate_template, finding, target),
+                    parse=lambda raw, t=target: parse_translation(raw, t),
+                    retry_hint=f"上一次输出没有翻译成{name},或者不是合法 JSON。"
+                               f"请重新翻译,三个字段全部输出{name}。",
+                )
+                item["finding"] = apply_translation(finding, source, validate_translation(parsed, target))
+            except Exception as e:
+                print(f"[pipeline]   translation failed ({type(e).__name__}), keeping original", file=sys.stderr)
+                item["finding"] = apply_translation(finding, source, None)
 
     on_status("reporting")
     try:

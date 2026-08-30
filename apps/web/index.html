@@ -321,7 +321,7 @@ const I18N = {
       uploading: "上传中...", uploadFail: (e) => `✕ 失败: ${e}`,
       selectedFile: (name) => `已选择: ${name}`,
     },
-    status: { ingesting: "解压中", scanning: "扫描中", verifying: "LLM 复核中", done: "扫描完成", failed: "扫描失败" },
+    status: { ingesting: "解压中", scanning: "扫描中", verifying: "LLM 复核中", translating: "翻译中", done: "扫描完成", failed: "扫描失败" },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     stats: { reachable: "漏洞总数", safe: "安全数量", needsReview: "需要人工复查" },
@@ -368,7 +368,7 @@ const I18N = {
       uploading: "Uploading...", uploadFail: (e) => `✕ Failed: ${e}`,
       selectedFile: (name) => `Selected: ${name}`,
     },
-    status: { ingesting: "Extracting", scanning: "Scanning", verifying: "LLM verifying", done: "Scan complete", failed: "Scan failed" },
+    status: { ingesting: "Extracting", scanning: "Scanning", verifying: "LLM verifying", translating: "Translating", done: "Scan complete", failed: "Scan failed" },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
     stats: { reachable: "Vulnerabilities found", safe: "Safe count", needsReview: "Needs manual review" },
@@ -388,6 +388,10 @@ function applyStaticI18n() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
     const val = t(el.dataset.i18nPlaceholder);
     if (typeof val === "string") el.placeholder = val;
+  });
+  document.querySelectorAll("[data-text-zh]").forEach((el) => {
+    const val = lang === "zh" ? el.dataset.textZh : el.dataset.textEn;
+    if (typeof val === "string") el.textContent = val;
   });
   $("lang-toggle").textContent = t("langToggle");
 }
@@ -697,10 +701,20 @@ function findingCardHtml(item) {
   const badgeLabel = isFailed ? t("reachable.failed") : (t(`reachable.${reachable}`) || reachable);
   const ruleIds = (item.rule_ids || [item.rule_id || ""]).join(", ");
   const messages = (item.messages || [item.message || ""]).join(" / ");
+  // Both languages of an LLM field, swapped by applyStaticI18n() the same
+  // way the report page does it. Falls back to the single original when
+  // 04_translate.py has not run for this scan.
+  const bilingual = (field) => {
+    const original = finding[field] || "";
+    if (!original) return "";
+    const zh = finding[`${field}_zh`] || original;
+    const en = finding[`${field}_en`] || original;
+    return `<span data-text-zh="${esc(zh)}" data-text-en="${esc(en)}">${esc(lang === "zh" ? zh : en)}</span>`;
+  };
   const exploit = finding.exploit_scenario
-    ? `<p><strong>${t("card.exploit")}</strong> ${esc(finding.exploit_scenario)}</p>` : "";
+    ? `<p><strong>${t("card.exploit")}</strong> ${bilingual("exploit_scenario")}</p>` : "";
   const remediation = finding.remediation
-    ? `<p class="remediation"><strong>${t("card.remediation")}</strong> ${esc(finding.remediation)}</p>` : "";
+    ? `<p class="remediation"><strong>${t("card.remediation")}</strong> ${bilingual("remediation")}</p>` : "";
   const confidence = finding.confidence != null
     ? `<p><strong>${t("card.confidence")}</strong> ${esc(finding.confidence)}</p>` : "";
   return `
@@ -715,7 +729,7 @@ function findingCardHtml(item) {
         <p><strong>${t("card.rule")}</strong> ${esc(messages)}</p>
         <p><strong>CWE:</strong> ${esc(item.cwe || "-")} &nbsp;·&nbsp; <strong>Source:</strong> ${esc(item.source_file)}:${esc(item.source_line)}</p>
         ${confidence}
-        <p><strong>${t("card.reasoning")}</strong> ${esc(finding.reasoning)}</p>
+        <p><strong>${t("card.reasoning")}</strong> ${bilingual("reasoning")}</p>
         ${exploit}
         ${remediation}
       </div>

@@ -34,7 +34,9 @@ uvicorn apps.api.main:app --reload --port 8000
 
 打开 `http://localhost:8000` 即可上传 zip、发起扫描、查看报告。
 
-Phase 0 的命令行脚本(`scripts/01_scan.py`、`scripts/02_verify.py`、`scripts/03_eval.py`)仍然可以独立运行,逻辑都在可复用的 `scanner/` 包里,和 API 共用同一套代码。
+Phase 0 的命令行脚本(`scripts/01_scan.py`、`scripts/02_verify.py`、`scripts/03_eval.py`、`scripts/04_translate.py`)仍然可以独立运行,逻辑都在可复用的 `scanner/` 包里,和 API 共用同一套代码。
+
+`04_translate.py` 是可选的一步:它给每条发现的判断依据、攻击场景、修复建议补上另一种语言,让报告页的中英文切换连正文一起切,而不只是切标签。不跑这一步,报告和以前完全一样——模型当时用哪种语言回的就显示哪种。
 
 ## 测试
 

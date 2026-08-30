@@ -34,7 +34,9 @@ Already cloned without `--recurse-submodules`? Run `git submodule update --init`
 
 Open `http://localhost:8000` to upload a zip, kick off a scan, and browse the report.
 
-The Phase 0 command-line scripts (`scripts/01_scan.py`, `scripts/02_verify.py`, `scripts/03_eval.py`) still work standalone — their logic lives in the importable `scanner/` package, shared with the API.
+The Phase 0 command-line scripts (`scripts/01_scan.py`, `scripts/02_verify.py`, `scripts/03_eval.py`, `scripts/04_translate.py`) still work standalone — their logic lives in the importable `scanner/` package, shared with the API.
+
+`04_translate.py` is optional: it fills in the other language for each finding's reasoning, exploit scenario and fix suggestion, so the report's zh/en toggle switches the prose and not just the labels. Skip it and the report reads exactly as before, in whichever language the model happened to answer in.
 
 ## Testing
 

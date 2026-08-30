@@ -125,3 +125,34 @@ class TestRemediation:
         html_out = render_html([make_item(remediation='<img src=x onerror="alert(1)">')], "p")
         assert "<img src=x" not in html_out
         assert "&lt;img" in html_out
+
+
+class TestBilingualProse:
+    """The report toggle switched labels but not the LLM's own prose, which
+    is most of what a reader reads. 04_translate.py fills in the other side;
+    these pin that the page carries both and that skipping that stage
+    changes nothing."""
+
+    def test_both_languages_reach_the_page(self):
+        item = make_item(reachable="yes", remediation="Use #{p}")
+        item["finding"]["remediation_zh"] = "改用 #{p}"
+        item["finding"]["remediation_en"] = "Use #{p}"
+        out = render_html([item], "p")
+        assert 'data-text-zh="改用 #{p}"' in out
+        assert 'data-text-en="Use #{p}"' in out
+
+    def test_an_untranslated_finding_carries_the_original_on_both_sides(self):
+        """The stage is optional, and a reader should not be able to tell it
+        was skipped except by the language not changing."""
+        out = render_html([make_item(reachable="yes")], "p")
+        assert 'data-text-zh="because reasons"' in out
+        assert 'data-text-en="because reasons"' in out
+
+    def test_translations_are_escaped_as_attributes(self):
+        """They quote the scanned source back at the reader, and now they do
+        it inside an HTML attribute, where a bare quote breaks out."""
+        item = make_item(reachable="yes")
+        item["finding"]["reasoning_zh"] = '" onmouseover="alert(1)'
+        out = render_html([item], "p")
+        assert 'onmouseover="alert(1)' not in out
+        assert "&quot;" in out
