@@ -27,6 +27,7 @@ from scanner.common import (  # noqa: F401
     load_default_configs,
     load_excluded_paths,
     load_excluded_rules,
+    load_out_of_scope_cwes,
     load_json,
     sha256,
     write_json,

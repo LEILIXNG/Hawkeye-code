@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from scanner.core import dedup_copies, long_paths, run_semgrep
+from scanner.core import dedup_copies, drop_out_of_scope, long_paths, run_semgrep
 
 
 def make_result(check_id="rule.id", path="C:\\repo\\A.java", start_line=51,
@@ -260,3 +260,56 @@ class TestRunSemgrepRefusesAnIncompleteScan:
 
         monkeypatch.setattr("scanner.core.subprocess.run", lambda *a, **k: Proc())
         assert run_semgrep(tmp_path, ["rules/custom"]) == {"results": []}
+
+
+class TestScopeFilter:
+    """Scope is dataflow: a weakness only counts when externally controlled
+    data reaches a dangerous operation. Filtering by CWE rather than by rule
+    id is what makes that a property of the weakness, so a vendor rule this
+    project has never seen is classified the first time it fires."""
+
+    OUT_OF_SCOPE = frozenset({"CWE-327", "CWE-328", "CWE-295"})
+
+    def candidate(self, cwe, rule="rules.vendor.x"):
+        return {"rule_id": rule, "cwe": cwe, "source_file": "A.java", "source_line": 1,
+                "sink_file": "A.java", "sink_line": 1}
+
+    def test_drops_a_weakness_with_no_dataflow(self, tmp_path):
+        kept = drop_out_of_scope([self.candidate(["CWE-328: Use of Weak Hash"])], self.OUT_OF_SCOPE)
+        assert kept == []
+
+    def test_keeps_a_dataflow_weakness(self, tmp_path):
+        cand = self.candidate(["CWE-89: SQL Injection"])
+        assert drop_out_of_scope([cand], self.OUT_OF_SCOPE) == [cand]
+
+    def test_keeps_a_candidate_with_no_cwe_at_all(self, tmp_path):
+        """Denylist, not allowlist: an unclassified weakness stays in, because
+        a false negative costs more than a false positive."""
+        cand = self.candidate(None)
+        assert drop_out_of_scope([cand], self.OUT_OF_SCOPE) == [cand]
+
+    def test_keeps_a_candidate_that_is_only_partly_out_of_scope(self, tmp_path):
+        cand = self.candidate(["CWE-327: Broken Crypto", "CWE-89: SQL Injection"])
+        assert drop_out_of_scope([cand], self.OUT_OF_SCOPE) == [cand]
+
+    def test_accepts_a_plain_string_cwe(self, tmp_path):
+        """Production sends a list, older fixtures a bare string."""
+        assert drop_out_of_scope([self.candidate("CWE-295")], self.OUT_OF_SCOPE) == []
+
+    def test_an_empty_scope_list_drops_nothing(self, tmp_path):
+        cands = [self.candidate(["CWE-328"]), self.candidate(["CWE-89"])]
+        assert drop_out_of_scope(cands, frozenset()) == cands
+
+    def test_runs_before_dedup_so_a_shared_sink_survives_on_its_other_rule(self, scan_module):
+        """The reason the filter sits before dedup(): two rules on one
+        (source, sink) merge into a single candidate carrying one cwe, and
+        filtering afterwards would judge the pair by whichever rule landed
+        first."""
+        raw = {"results": [
+            make_result(check_id="crypto", path=r"C:\repo\A.java", start_line=88, cwe=["CWE-327: Broken Crypto"]),
+            make_result(check_id="sqli", path=r"C:\repo\A.java", start_line=88, cwe=["CWE-89: SQL Injection"]),
+        ]}
+        candidates = scan_module.normalize(raw, Path(r"C:\repo"))
+        deduped = scan_module.dedup(drop_out_of_scope(candidates, self.OUT_OF_SCOPE))
+        assert len(deduped) == 1
+        assert deduped[0]["rule_ids"] == ["sqli"]

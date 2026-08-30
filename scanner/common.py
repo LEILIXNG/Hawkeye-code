@@ -59,6 +59,14 @@ def load_excluded_rules() -> list[str]:
     return list(_load_ruleset().get("exclude_rules") or [])
 
 
+def load_out_of_scope_cwes() -> frozenset[str]:
+    """CWE ids from ruleset.yml's `out_of_scope_cwes`, normalized to bare
+    `CWE-nnn`. Semgrep reports the field as a list of full descriptions
+    ("CWE-327: Use of a Broken ... Algorithm"), so only the id is compared."""
+    listed = _load_ruleset().get("out_of_scope_cwes") or []
+    return frozenset(str(c).split(":")[0].strip().upper() for c in listed)
+
+
 def load_excluded_paths() -> list[str]:
     """Path globs from ruleset.yml's `exclude_paths`, for `semgrep
     --exclude`. Absent or empty means nothing is excluded."""

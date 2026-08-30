@@ -16,6 +16,7 @@ currently only surface as a broken (or silently degraded) scan:
     failure anyone notices.
 """
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,6 +30,7 @@ from scanner.common import (
     load_default_configs,
     load_excluded_paths,
     load_excluded_rules,
+    load_out_of_scope_cwes,
 )
 
 CUSTOM_RULES_DIR = ROOT / "rules" / "custom"
@@ -88,6 +90,26 @@ class TestRulesetFile:
         like a path or a glob here would silently exclude nothing."""
         for rule_id in load_excluded_rules():
             assert "/" not in rule_id and "*" not in rule_id, rule_id
+
+    def test_out_of_scope_cwes_are_bare_ids(self):
+        """Compared against the id Semgrep reports ("CWE-327: Use of a Broken
+        ... Algorithm"), so a description or a lowercase id here would match
+        nothing and silently widen the scope back."""
+        ruleset = yaml.safe_load(RULESET_PATH.read_text(encoding="utf-8"))
+        listed = ruleset.get("out_of_scope_cwes") or []
+        assert isinstance(listed, list)
+        assert len(set(listed)) == len(listed), "duplicate ids in out_of_scope_cwes"
+        for entry in listed:
+            assert isinstance(entry, str) and re.fullmatch(r"CWE-\d+", entry.strip()), entry
+
+    def test_no_dataflow_weakness_is_declared_out_of_scope(self):
+        """The scope rule is that a weakness needs a source -> sink path, so
+        the injection and traversal CWEs are what this list must never
+        contain -- putting one here would delete the tool's whole purpose."""
+        dataflow = {"CWE-22", "CWE-77", "CWE-78", "CWE-79", "CWE-89", "CWE-90",
+                    "CWE-94", "CWE-95", "CWE-434", "CWE-470", "CWE-502",
+                    "CWE-601", "CWE-611", "CWE-643", "CWE-918"}
+        assert not (load_out_of_scope_cwes() & dataflow)
 
     def test_exclude_paths_is_a_list_of_strings(self):
         ruleset = yaml.safe_load(RULESET_PATH.read_text(encoding="utf-8"))

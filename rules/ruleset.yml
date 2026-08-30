@@ -52,6 +52,54 @@
 # on the next new corpus rather than re-deriving this.
 exclude_rules: []
 
+# Scope. This tool reports a weakness only when there is a complete
+# source -> sink path: externally controlled data reaching a dangerous
+# operation. That is the whole shape of the pipeline -- semgrep proposes a
+# sink, scanner/callgraph.py reconstructs how a request reaches it, and the
+# verify stage judges the flow. A rule whose match is a *static property of
+# the code* -- a weak hash, a missing cookie flag, a certificate check that
+# was disabled -- has no source and no path, so the verify stage has nothing
+# to judge and answers the question it was not asked. Measured: the same
+# empty checkServerTrusted() came back "not reachable" in one run and
+# "reachable, because the untrusted input is the peer's certificate" in the
+# next. Both readings are defensible, which is exactly why such findings do
+# not belong in a report whose column heading is reachability.
+#
+# These are real weaknesses; they are out of *this tool's* scope, not
+# harmless. A dedicated hardening/config checker is the right home for them.
+#
+# Listed by CWE rather than by rule id on purpose: scope is a property of
+# the weakness, not of any one rule. A vendor rule nobody here has ever seen
+# is classified the moment it fires, with no list to update -- and the
+# vendored ruleset is far larger than the handful of rules any one corpus
+# exercises.
+#
+# A denylist, not an allowlist, for the same reason exclude_paths is
+# conservative: a CWE nobody has classified stays in the scan. A false
+# negative costs more than a false positive.
+#
+# Filtering happens on candidates rather than via --exclude-rule because the
+# CWE is on the finding, not derivable from the rule's path. Semgrep still
+# runs these rules; what is saved is the verify call and the report row,
+# which is where the cost actually is (~5.9s per candidate, plus rate-limit
+# budget on the free-tier endpoints).
+out_of_scope_cwes:
+  - CWE-295    # improper certificate validation (empty TrustManager, HostnameVerifier)
+  - CWE-297    # improper validation of certificate with host mismatch
+  - CWE-311    # missing encryption of sensitive data
+  - CWE-319    # cleartext transmission
+  - CWE-326    # inadequate encryption strength (weak SSL context, small keys)
+  - CWE-327    # broken or risky crypto algorithm (ECB, DES)
+  - CWE-328    # weak hash (MD5, SHA1)
+  - CWE-329    # missing/predictable IV
+  - CWE-330    # insufficiently random values
+  - CWE-338    # cryptographically weak PRNG
+  - CWE-347    # improper verification of cryptographic signature
+  - CWE-352    # CSRF (a mapping without a method restriction)
+  - CWE-614    # cookie without the Secure flag
+  - CWE-1004   # cookie without the HttpOnly flag
+  - CWE-1275   # cookie with an improper SameSite attribute
+
 # Paths never worth scanning, whatever the target is. Each entry is passed
 # to semgrep as --exclude, which takes gitignore-style globs.
 #

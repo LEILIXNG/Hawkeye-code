@@ -193,6 +193,40 @@ def normalize(raw: dict, target: Path) -> list[dict]:
     return candidates
 
 
+def cwe_ids(candidate: dict) -> set[str]:
+    """The bare `CWE-nnn` ids on a candidate. Semgrep reports the field as a
+    list of full descriptions in production and older fixtures use a plain
+    string, so both shapes are accepted (same reason render._cwe_text does)."""
+    cwe = candidate.get("cwe")
+    listed = cwe if isinstance(cwe, list) else ([cwe] if cwe else [])
+    return {str(c).split(":")[0].strip().upper() for c in listed if c}
+
+
+def drop_out_of_scope(candidates: list[dict], out_of_scope: frozenset[str]) -> list[dict]:
+    """Candidates whose weakness has no source -> sink path to judge.
+
+    This tool's scope is dataflow: externally controlled data reaching a
+    dangerous operation. A rule matching a static property of the code -- a
+    weak hash, a missing cookie flag, a disabled certificate check -- gives
+    the verify stage nothing to trace, and it answers the question it was not
+    asked. The same empty checkServerTrusted() came back "not reachable" in
+    one run and "reachable, the untrusted input is the peer's certificate" in
+    the next; both readings are defensible, which is why the finding does not
+    belong in a report whose column heading is reachability.
+
+    Runs before dedup(), while each candidate still carries exactly one rule
+    and one CWE: a (source, sink) pair that an in-scope rule *also* hit
+    survives on that rule's candidate and merges normally.
+
+    A candidate with no CWE at all is kept. The list in ruleset.yml is a
+    denylist for that reason -- an unclassified weakness stays in the scan,
+    because a false negative costs more than a false positive.
+    """
+    if not out_of_scope:
+        return candidates
+    return [c for c in candidates if not (cwe_ids(c) and cwe_ids(c) <= out_of_scope)]
+
+
 def dedup(candidates: list[dict]) -> list[dict]:
     """Merge candidates that share the same (source, sink) pair; keep every
     distinct rule_id that hit that pair instead of silently dropping any."""

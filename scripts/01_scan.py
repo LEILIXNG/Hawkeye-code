@@ -19,13 +19,17 @@ from common import (
     load_default_configs,
     load_excluded_paths,
     load_excluded_rules,
+    load_out_of_scope_cwes,
     write_json,
 )
-from scanner.core import dedup, dedup_copies, extract_source_location, normalize, relpath, run_semgrep  # noqa: F401
+from scanner.core import (  # noqa: F401
+    dedup, dedup_copies, drop_out_of_scope, extract_source_location, normalize, relpath, run_semgrep,
+)
 
 DEFAULT_CONFIGS = load_default_configs()
 EXCLUDED_RULES = load_excluded_rules()
 EXCLUDED_PATHS = load_excluded_paths()
+OUT_OF_SCOPE_CWES = load_out_of_scope_cwes()
 
 
 def main():
@@ -44,10 +48,12 @@ def main():
 
     raw = run_semgrep(target, configs, EXCLUDED_RULES, EXCLUDED_PATHS)
     candidates = normalize(raw, target)
-    deduped = dedup_copies(dedup(candidates), target)
+    in_scope = drop_out_of_scope(candidates, OUT_OF_SCOPE_CWES)
+    deduped = dedup_copies(dedup(in_scope), target)
 
     write_json(Path(args.out), deduped)
-    print(f"[scan] {len(candidates)} raw findings -> {len(deduped)} deduped candidates")
+    print(f"[scan] {len(candidates)} raw findings -> {len(in_scope)} in scope "
+          f"-> {len(deduped)} deduped candidates")
     print(f"[scan] wrote {args.out}")
 
 
