@@ -6,37 +6,86 @@
 
 <p align="center">中文 · <a href="README.md">English</a></p>
 
-本地运行的代码安全扫描工具,**建立在 Semgrep 之上而不是把 Semgrep 当成引擎**:上传压缩包 → Semgrep 摆出候选 → 自研的跨文件调用图还原请求究竟怎么到达每个 sink → LLM 判定可达性 → 生成可浏览的报告。
+一款面向 Java/Spring 的本地 SAST 工具。Semgrep 出候选,自研跨文件调用图还原请求到达 sink 的路径,LLM 研判可达性并给出修复建议。
 
-不接 GitHub、不部署公网服务器,单用户本地使用。完整设计见 [`docs/framework.md`](docs/framework.md)。
+**只报有完整 source→sink 路径的漏洞。** 单用户、不接 GitHub、不部署公网服务,全程跑在你自己的机器上。
 
-## 特性
+```
+zip → Semgrep 候选 → 调用图 → LLM 研判 → 报告
+```
 
-- **跨文件 source→sink 分析,自研实现。** Semgrep 开源版的污点分析是**过程内**的,到方法边界就停:service 类里的一个 SQL sink,它只会把同方法里的一个局部字符串报成 "source",而真正决定这条路能不能打的、controller 里那个 `@RequestParam`,它一个字都说不出来。`scanner/callgraph.py` 用自己的反向调用图补上这一段——基于 tree-sitter 解析 Java,从 sink 往上追调用方、跨文件一直追到请求入口。把这些调用链加进复核上下文之后,对照标注集的一致率从 9/11 升到 11/11,"不确定"归零。**不依赖任何专有引擎。**
-- **Semgrep 只负责找候选,不负责下结论。** Semgrep 的职责就是又快又便宜地把候选污点路径摆出来,仅此而已;"这条到底能不能打、有没有被净化、是不是误报"由 LLM 结合上面的调用链判断,而不是让 LLM 从零分析整个代码库。
-- **规则先量后补。** 覆盖率是对着目标代码库实测出来的,量出盲区再用 `rules/custom` 下手写的规则补上。`rules/ruleset.yml` 同时提供 `exclude_rules` / `exclude_paths` 两级降噪开关,`scripts/rule_stats.py` 能按规则、按 (规则, 文件) 两个维度给出命中统计——排除哪条规则是拿证据决定的,不是凭感觉。
-- **LLM 供应商随便换。** 任何兼容 OpenAI 协议的接口都能用(OpenAI、DeepSeek、Kimi、通义千问、智谱 GLM、自建网关……)。可以在网页上保存多份供应商配置、随时切换哪份生效,也能在发起某次扫描时单独指定用哪份,不用去改 `.env`。
-- **规则库锁版本、不联网拉取。** `rules/vendor/semgrep-rules` 是锁定版本的 git submodule,不是每次实时从 Semgrep Registry 拉取,保证扫描结果在不同机器、不同时间跑出来都一样。`rules/ruleset.yml` 从里面精选出和"服务端 Java/Spring 应用"相关的部分(排除了 Android、AWS Lambda 专用规则)。
-- **一个进程,不用额外起服务。** FastAPI 同时提供 API 和单页前端(以静态文件方式挂载),只需要跑 `uvicorn` 这一个进程。
-- **网页界面**:拖拽上传 zip、每次扫描的发现可以按"可达/不可达/不确定/复核失败"筛选查看、设置区块可折叠、支持中英文切换——全程自动跟随系统的浅色/深色主题。
+## 功能
 
-## 怎么跑起来
+**自研跨文件 source→sink 分析**
+- Semgrep OSS 的污点分析是函数内的——停在方法边界,所以 service 类里的 SQL sink 只会把一个局部变量报成 "source",完全不提真正喂给它的那个 `@RequestParam`。
+- `scanner/callgraph.py` 反着走:从 sink 出发,顺着调用者向上、跨文件,直到抵达一个请求能进来的入口。
+- 宽度优先 + 共享 visited,深度由代码决定而不是由代价决定。7 层是真实分层 Spring 应用实测的饱和点。
+- 能识别 HTTP handler、消息监听器(Kafka/Rabbit/JMS),以及按父类型判定的 Servlet/Filter 方法。
+- MyBatis mapper XML 也在图里:`<mapper namespace>` 给出接口全限定名,`<select id>` 给出方法名,mapper 里的 `${}` 因此能追回到调用它的控制器。
+
+**Semgrep 只出候选,不下结论**
+- 只让 Semgrep 干一件事:把可疑的 sink 摆出来,又快又便宜。
+- 每条到底是真可达、已被净化,还是误报,交给 LLM 判断,依据是上面那张调用图。
+- 每条判定都带 `reachable` / `sanitized` / `confidence` / `reasoning`,外加攻击场景和具体修复方案。
+
+**修复建议要具体,不要套话**
+- 复核层直接点名要改哪一行、改成什么——"把 `${sortParam}` 换成 `#{sortParam}`;`ORDER BY` 无法参数化的,用白名单把值映射成固定列名"。
+- 可达和不确定的填,没什么可修的留空。
+
+**范围以数据流为准**
+- 只有"外部可控数据到达危险操作"才算数。
+- 命中代码静态属性的规则——弱哈希、Cookie 少标志位、证书校验被关掉——按 CWE 在花掉一次复核调用之前就被过滤掉。它们是真问题,只是该由别的工具负责。
+- 过滤用的是 CWE 黑名单,所以一条从没见过的 vendor 规则第一次命中就被正确归类。
+
+**降噪靠确定性数据,不靠感觉**
+- 复制模块自动合并:同一份代码换个包名装两份,只复核一次,报告里指出每一处副本。
+- `scripts/rule_stats.py` 给出按规则、按 (规则, 文件) 的命中统计,任何排除都要有证据。
+- `rules/ruleset.yml` 内置通用 `exclude_paths`,排掉构建产物、生成代码和 vendored 依赖。
+
+**规则库 vendored 并锁版本**
+- `rules/vendor/semgrep-rules` 是锁定的 git submodule,不是实时拉 Registry——换机器、隔一段时间,扫描结果都可复现。
+- 在 `rules/ruleset.yml` 里裁剪到服务端 Java/Spring 范围(排除 Android 和 Lambda 专用规则)。
+- `rules/custom` 下 5 条自研规则补上实测出的盲区:命令注入、路径穿越、XXE、开放重定向、MyBatis `${}`。
+- 每条自研规则都配标注样本,缺正例或缺反例测试直接红。
+
+**LLM 供应商自选**
+- 任何 OpenAI 协议兼容的端点:OpenAI、DeepSeek、Kimi、通义千问、智谱 GLM、自建网关。
+- 网页里可以存多份配置、随时切换生效项,也可以按次扫描单独指定,不用改 `.env`。
+
+**报告中英双语**
+- 中英切换连 LLM 写的正文一起切——判断依据、攻击场景、修复建议,不只是标签。
+- 报告可以直接双击打开,不需要起服务。
+
+**一个进程,零构建**
+- FastAPI 同时提供 API 和单页前端,只需要跑 `uvicorn`。
+- 拖拽上传、可筛选的内联结果、可折叠设置面板、自动跟随系统深浅色。
+
+## 快速开始
 
 ```bash
 git clone --recurse-submodules https://github.com/LEILIXNG/Hawkeye-code.git
 cd Hawkeye-code
 pip install -r requirements.txt
-copy .env.example .env   # 填入 OPENAI_API_KEY(或者直接用 /settings 页面配置供应商)
+copy .env.example .env   # 填 OPENAI_API_KEY,或者之后在设置面板里配
 uvicorn apps.api.main:app --reload --port 8000
 ```
 
-如果之前克隆的时候没加 `--recurse-submodules`,补一句 `git submodule update --init`——不然 `rules/vendor/semgrep-rules` 是空的,扫描会漏掉绝大部分规则。
+打开 `http://localhost:8000`,拖一个 zip 进去,然后看报告。
 
-打开 `http://localhost:8000` 即可上传 zip、发起扫描、查看报告。
+> 已经 clone 了但没带 `--recurse-submodules`?补一句 `git submodule update --init`。不补的话 `rules/vendor/semgrep-rules` 是空的,扫描会漏掉绝大部分规则。
 
-Phase 0 的命令行脚本(`scripts/01_scan.py`、`scripts/02_verify.py`、`scripts/03_eval.py`、`scripts/04_translate.py`)仍然可以独立运行,逻辑都在可复用的 `scanner/` 包里,和 API 共用同一套代码。
+### 命令行
 
-`04_translate.py` 是可选的一步:它给每条发现的判断依据、攻击场景、修复建议补上另一种语言,让报告页的中英文切换连正文一起切,而不只是切标签。不跑这一步,报告和以前完全一样——模型当时用哪种语言回的就显示哪种。
+每个阶段都能独立运行,之间通过 JSON 文件交换数据;逻辑都在可复用的 `scanner/` 包里,和 API 共用。
+
+| 脚本 | 作用 |
+| --- | --- |
+| `scripts/01_scan.py` | Semgrep → 去重、在范围内的候选 |
+| `scripts/02_verify.py` | 调用图 + LLM → 判定 |
+| `scripts/03_eval.py` | 拿 `eval/labels.json` 给判定打分 |
+| `scripts/04_translate.py` | 补另一种语言(可选) |
+
+`04_translate.py` 是可选的:不跑它,报告和以前完全一样——模型当时用哪种语言回的就显示哪种。
 
 ## 测试
 
@@ -44,13 +93,19 @@ Phase 0 的命令行脚本(`scripts/01_scan.py`、`scripts/02_verify.py`、`scri
 python -m pytest tests/ -v
 ```
 
-确定性逻辑(去重、路径处理、上下文提取、API 的 HTTP 契约)由单元测试覆盖。LLM 复核的效果好坏另外用 `eval/labels.json` 跟踪——自动化测试套件不适合去做真实的、要花钱的、结果还不确定的 API 调用。
+- 213 条单元测试覆盖确定性的那一半:去重、路径处理、上下文提取、调用图、规则集契约,以及 API 的 HTTP 接口。
+- 没有任何测试会真的调 LLM——结果不确定又要花钱的调用不该进 CI。
+- LLM 的效果单独用 `eval/labels.json` 跟踪。
 
 ## 现状
 
-Phase 1(FastAPI + SQLite + 网页界面,完整的上传 → 扫描 → 报告闭环)已经完成,并且一直在持续打磨:规则库从实时拉取 Registry pack 改成了锁版本的 vendored submodule,LLM 供应商配置做成了可独立保存/切换/按次扫描指定,前端经过了好几轮重新设计,分析能力也已经越过了"Semgrep 报什么就是什么"——包括针对实测盲区手写的规则,以及上面那套跨文件调用图。
+Phase 1 已完成——上传 → 扫描 → 报告全链路跑通——之后一直在迭代。
 
-`eval/labels.json` 里手工标注的 11 条样本全部被当前规则库覆盖,最近一次全量复核的一致率是 **11/11**,而调用图落地之前是 8/9。这是一次运行的结果、不是保证(复核层本身有随机性),但那条自评估建立以来一直判错的候选现在判对了,而且调用图正好解释了它此前为什么无解。完整架构设计看 `docs/framework.md`,项目自己的开发规范看 `CLAUDE.md`。
+- `eval/labels.json` 有 19 条人工标注,当前规则集全部能扫到,最近一次全量运行一致率 18/19。
+- **复核层在两次完全相同的重跑之间约有 16% 的判定会翻转**,所以 19 条标注上 ±1 的变化属于噪声。引擎改动一律用确定性指标论证:多少条候选找不到入口、多少方法不再被截断、还原了几条调用链。
+- 已在一个真实的 13 模块 Maven 项目上实测过,不只跑教学靶场。
+
+完整架构见 `docs/framework.md`,开发规范见 `CLAUDE.md`。
 
 ## 许可证
 
