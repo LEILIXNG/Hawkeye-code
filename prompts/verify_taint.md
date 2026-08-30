@@ -30,7 +30,8 @@
   "sanitized": false,
   "confidence": 0,
   "reasoning": "",
-  "exploit_scenario": ""
+  "exploit_scenario": "",
+  "remediation": ""
 }}
 
 字段说明:
@@ -39,3 +40,7 @@
 - confidence: 0-100 的整数
 - reasoning: 一到两句话说明依据
 - exploit_scenario: 如果 reachable=yes,给出一个具体攻击场景;否则留空字符串
+- remediation: 如果 reachable 是 "yes" 或 "uncertain",给出**针对这段代码的**具体修复方案;reachable=no 时留空字符串。要求:
+  - **指名要改哪一行、改成什么**,例如"把 `${{sortParam}}` 换成 `#{{sortParam}}`,MyBatis 会走预编译参数;ORDER BY 无法参数化的话,用白名单把 `sortParam` 映射成固定的列名常量"。
+  - 优先根治手段——参数化查询、白名单枚举、框架内置的转义/校验、把用户输入挡在拼接之外。
+  - **不要写"注意过滤用户输入""加强输入校验"这类放之四海而皆准的空话**,那等于没写。如果这条 sink 的正确修法确实取决于看不到的上下文,就说清楚缺什么、要确认什么。

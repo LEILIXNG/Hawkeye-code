@@ -116,6 +116,7 @@ def _card_html(item: dict) -> str:
         {_duplicates_html(item)}
         <p><strong data-i18n="card.reasoning"></strong> {html.escape(finding.get("reasoning") or "")}</p>
         {f'<p><strong data-i18n="card.exploit"></strong> {html.escape(finding.get("exploit_scenario") or "")}</p>' if finding.get("exploit_scenario") else ""}
+        {f'<p class="remediation"><strong data-i18n="card.remediation"></strong> {html.escape(finding.get("remediation") or "")}</p>' if finding.get("remediation") else ""}
       </div>
     </details>
     """
@@ -299,6 +300,8 @@ def render_html(verified: list[dict], project_name: str) -> str:
   .card summary::-webkit-details-marker {{ display: none; }}
   .card-body {{ padding: 0.6rem 0.2rem 0.5rem; line-height: 1.7; border-top: 1px solid var(--border); margin-top: 0.3rem; }}
   .card-body p {{ margin: 0.4rem 0; font-size: 0.88rem; }}
+  .card-body p.remediation {{ border-left: 3px solid var(--primary); padding: 0.35rem 0 0.35rem 0.6rem;
+                              background: var(--primary-soft); border-radius: 0 4px 4px 0; }}
   .badge {{ font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; color: #fff; }}
   .badge-yes {{ background: var(--danger); }}
   .badge-no {{ background: var(--success); }}

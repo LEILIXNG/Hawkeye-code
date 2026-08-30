@@ -39,5 +39,6 @@ def call_llm(provider, model: str, prompt: str) -> dict:
                 "confidence": 0,
                 "reasoning": "verifier_failed: LLM did not return valid JSON",
                 "exploit_scenario": "",
+                "remediation": "",
                 "raw_output": raw_text,
             }

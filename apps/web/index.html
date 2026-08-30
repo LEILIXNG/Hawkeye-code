@@ -177,6 +177,8 @@
   .finding-card summary::-webkit-details-marker { display: none; }
   .finding-card .card-body { padding: 0.4rem 0.1rem 0.5rem; line-height: 1.6; border-top: 1px solid var(--border); margin-top: 0.2rem; font-size: 0.82rem; }
   .finding-card .card-body p { margin: 0.35rem 0; }
+  .finding-card .card-body p.remediation { border-left: 3px solid var(--primary); padding: 0.35rem 0 0.35rem 0.6rem;
+                                           background: var(--primary-soft); border-radius: 0 4px 4px 0; }
   .badge { font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; color: #fff; }
   .badge-yes { background: var(--danger); }
   .badge-no { background: var(--success); }
@@ -323,7 +325,7 @@ const I18N = {
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     stats: { reachable: "漏洞总数", safe: "安全数量", needsReview: "需要人工复查" },
-    card: { rule: "规则说明:", confidence: "置信度:", reasoning: "判断依据:", exploit: "攻击场景:" },
+    card: { rule: "规则说明:", confidence: "置信度:", reasoning: "判断依据:", exploit: "攻击场景:", remediation: "修复建议:" },
   },
   en: {
     langToggle: "中文",
@@ -370,7 +372,7 @@ const I18N = {
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
     stats: { reachable: "Vulnerabilities found", safe: "Safe count", needsReview: "Needs manual review" },
-    card: { rule: "Rule:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:" },
+    card: { rule: "Rule:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:", remediation: "How to fix:" },
   },
 };
 
@@ -697,6 +699,8 @@ function findingCardHtml(item) {
   const messages = (item.messages || [item.message || ""]).join(" / ");
   const exploit = finding.exploit_scenario
     ? `<p><strong>${t("card.exploit")}</strong> ${esc(finding.exploit_scenario)}</p>` : "";
+  const remediation = finding.remediation
+    ? `<p class="remediation"><strong>${t("card.remediation")}</strong> ${esc(finding.remediation)}</p>` : "";
   const confidence = finding.confidence != null
     ? `<p><strong>${t("card.confidence")}</strong> ${esc(finding.confidence)}</p>` : "";
   return `
@@ -713,6 +717,7 @@ function findingCardHtml(item) {
         ${confidence}
         <p><strong>${t("card.reasoning")}</strong> ${esc(finding.reasoning)}</p>
         ${exploit}
+        ${remediation}
       </div>
     </details>`;
 }

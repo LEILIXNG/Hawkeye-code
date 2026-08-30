@@ -3,17 +3,19 @@
 not logic worth pinning down in a unit test)."""
 import re
 
-from scanner.render import build_summary, render
+from scanner.render import build_summary, render, render_html
 from scanner.report_i18n import REPORT_I18N
 
 
-def make_item(reachable="yes", severity="ERROR", verifier_failed=False, exploit_scenario_present=False, **overrides):
+def make_item(reachable="yes", severity="ERROR", verifier_failed=False, exploit_scenario_present=False,
+              remediation="", **overrides):
     finding = {
         "reachable": reachable,
         "sanitized": False,
         "confidence": 80,
         "reasoning": "verifier_failed: LLM did not return valid JSON" if verifier_failed else "because reasons",
         "exploit_scenario": "attacker sends a crafted parameter" if exploit_scenario_present else "",
+        "remediation": remediation,
     }
     item = {
         "rule_id": "rule.x",
@@ -101,3 +103,25 @@ class TestReportI18n:
         assert used, "expected the page to be driven by data-i18n keys"
         for table in REPORT_I18N.values():
             assert used <= flatten_keys(table)
+
+
+class TestRemediation:
+    """The one line in a card the reader is meant to act on. Rendered only
+    when the model actually produced one -- an empty paragraph with a
+    heading and nothing after it reads as a bug."""
+
+    def test_shown_when_the_model_produced_one(self):
+        html_out = render_html([make_item(reachable="yes", remediation="Use #{sortParam} instead")], "p")
+        assert 'data-i18n="card.remediation"' in html_out
+        assert "Use #{sortParam} instead" in html_out
+
+    def test_omitted_when_empty(self):
+        html_out = render_html([make_item(reachable="no")], "p")
+        assert "card.remediation" not in html_out
+
+    def test_escaped_like_every_other_llm_field(self):
+        """It quotes the scanned source back at the reader, same as
+        reasoning and exploit_scenario, so it is untrusted text."""
+        html_out = render_html([make_item(remediation='<img src=x onerror="alert(1)">')], "p")
+        assert "<img src=x" not in html_out
+        assert "&lt;img" in html_out
