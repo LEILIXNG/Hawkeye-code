@@ -18,6 +18,7 @@ caller costs a few lines of prompt, while a missing one costs the answer.
 docs/framework.md section D calls for exactly this, minus the Java sidecar
 that CLAUDE.md replaced with Python.
 """
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.parsers import expat
@@ -57,6 +58,15 @@ SERVLET_SUPERTYPES = frozenset({
     "HttpServlet", "GenericServlet", "Servlet", "Filter", "HttpFilter",
     "OncePerRequestFilter", "HandlerInterceptor", "HandlerInterceptorAdapter",
 })
+# A method name that shows up only as a string literal is the fingerprint of
+# reflective dispatch, and it is the evidence a human looks for when nothing
+# calls a method. Measured: OaSysUserManage.insertObj() has no call site
+# anywhere in the corpus, and its name appears in OaEnum.java as
+# INSERT_USER("insertUser", "user", "insertObj", "N") -- a registry the
+# application walks with Method.invoke. Only identifier-shaped literals are
+# kept, so ordinary message text does not fill the index.
+IDENTIFIER_LITERAL = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{2,63}")
+
 SERVLET_ENTRY_METHODS = frozenset({
     "doGet", "doPost", "doPut", "doDelete", "doHead", "doOptions", "doTrace",
     "service", "doFilter", "preHandle", "postHandle",
@@ -153,6 +163,10 @@ class Index:
     # AbstractDataUpload -- and a one-level check silently drops the middle.
     supertypes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     ancestors: dict[str, frozenset[str]] = field(default_factory=dict)
+    # Identifier-shaped string literal -> the files it appears in. Lets
+    # "nothing calls this method" be followed by "but its name is a string
+    # in OaEnum.java", which is the difference between a shrug and a lead.
+    string_literals: dict[str, set[str]] = field(default_factory=dict)
 
     def methods_named(self, name: str, arity: int) -> list[Method]:
         return [m for m in self.methods if m.name == name and m.arity == arity]
@@ -405,6 +419,10 @@ def _walk(node: Node, src: bytes, rel: str, index: Index,
                 entry_definitive=definitive,
             )
             index.methods.append(current)
+    elif node.type == "string_literal":
+        text = _text(node, src).strip('"')
+        if IDENTIFIER_LITERAL.fullmatch(text):
+            index.string_literals.setdefault(text, set()).add(rel)
     elif node.type == "method_invocation":
         name_node = node.child_by_field_name("name")
         if name_node is not None:

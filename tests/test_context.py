@@ -367,15 +367,45 @@ class TestNoEntryPointExplanation:
         candidate = {"sink_file": file, "sink_line": line, "source_file": file, "source_line": line}
         return build_caller_context(root, candidate, idx)
 
-    def test_internal_callers_but_no_handler_says_so(self, tmp_path):
+    def test_internal_callers_are_reported_by_where_they_end(self, tmp_path):
+        """Naming the leaf beats guessing at it. The previous wording offered
+        the reader three possible explanations at once and committed to
+        none."""
         text = self.context_for(tmp_path, {"A.java": """
             class A {
                 void caller() { helper("x"); }
                 void helper(String a) { exec(a); }
             }
         """}, "A.java", 4)
-        assert "called only from other internal code" in text
-        assert "strategy registry" in text
+        assert "every path ends at: A.caller() in A.java" in text
+
+    def test_a_chain_ending_at_main_is_named_as_the_startup_path(self, tmp_path):
+        """Measured: three vmscode candidates whose chains 'died in internal
+        code' all terminate at DictionaryApp.main(), a SpringApplication.run()
+        bootstrap. They run at boot, which is a definite answer."""
+        text = self.context_for(tmp_path, {"App.java": """
+            class App {
+                public static void main(String[] args) { boot(); }
+                static void boot() { connect("jdbc:..."); }
+                static void connect(String url) { exec(url); }
+            }
+        """}, "App.java", 5)
+        assert "startup path" in text and "App.main() in App.java" in text
+
+    def test_a_name_used_only_as_a_string_literal_is_flagged(self, tmp_path):
+        """The evidence a human looks for when nothing calls a method:
+        OaSysUserManage.insertObj() has no call site anywhere, and its name
+        sits in OaEnum.java inside a registry walked with Method.invoke."""
+        text = self.context_for(tmp_path, {
+            "Handler.java": """
+                class Handler implements UpdateService {
+                    @Override
+                    public void insertObj(String json) { exec(json); }
+                }
+            """,
+            "Registry.java": 'enum Reg { INSERT("insertUser", "insertObj"); }',
+        }, "Handler.java", 4)
+        assert "string literal" in text and "Registry.java" in text
 
     def test_a_method_nothing_calls_says_nothing_calls_it(self, tmp_path):
         text = self.context_for(tmp_path, {"A.java": """

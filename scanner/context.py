@@ -89,6 +89,14 @@ MAX_CALLER_CHAINS = 4  # a shared sink can have many; four is enough to show the
 CALLER_WINDOW = 8
 
 
+def _identity(method):
+    """A method's identity for closure walking: the owning type rather than
+    the file, because a module shipped twice under two paths (see
+    dedup_copies) otherwise looks like each copy calling the other, and a
+    method calling itself is not somebody else calling it."""
+    return (method.owner.name, method.name, method.arity)
+
+
 def _owner_phrase(method) -> str:
     if not method.owner.name:
         return ""
@@ -97,6 +105,60 @@ def _owner_phrase(method) -> str:
     if method.owner.supertypes:
         return f"{method.owner.name} ({', '.join(method.owner.supertypes)})"
     return method.owner.name
+
+
+MAX_CLOSURE = 200  # a runaway closure is not worth walking to describe it
+MAX_LEAVES_SHOWN = 4
+
+
+def _closure_leaves(index, method):
+    """The methods the call chains into `method` actually terminate at.
+
+    Reporting these instead of guessing is the point. The three candidates
+    whose chains "died in internal code" on the vmscode corpus all terminate
+    at DictionaryApp.main() -- a SpringApplication.run() bootstrap, so they
+    run at startup and no request reaches them, which is a definite answer
+    rather than the shrug the old message offered.
+    """
+    seen = {_identity(method)}
+    frontier, leaves = [method], []
+    while frontier and len(seen) < MAX_CLOSURE:
+        nxt = []
+        for current in frontier:
+            callers = [c for c in callers_of(index, current)
+                       if _identity(c.caller) != _identity(current)]
+            if not callers:
+                leaves.append(current)
+            for call in callers:
+                key = _identity(call.caller)
+                if key in seen:
+                    continue
+                seen.add(key)
+                nxt.append(call.caller)
+        frontier = nxt
+    return leaves
+
+
+def _describe(method) -> str:
+    owner = f"{method.owner.name}." if method.owner.name else ""
+    return f"{owner}{method.name}() in {method.file}"
+
+
+def _reflective_dispatch_note(index, name: str) -> str:
+    """Where a method's name turns up as a string literal.
+
+    When nothing calls a method, this is the evidence a human goes looking
+    for, and it was decisive here: OaSysUserManage.insertObj() has no call
+    site anywhere, and its name sits in OaEnum.java as
+    INSERT_USER("insertUser", "user", "insertObj", "N") -- a registry walked
+    with Method.invoke, which no call graph can follow.
+    """
+    files = sorted(getattr(index, "string_literals", {}).get(name, ()))
+    if not files:
+        return ""
+    shown = ", ".join(files[:2]) + (f" (+{len(files) - 2} more)" if len(files) > 2 else "")
+    return (f' Its name appears as a string literal in {shown}, which is what dispatch '
+            f"by reflection or a name-keyed registry looks like.")
 
 
 def _no_entry_point(index, method) -> str:
@@ -116,20 +178,33 @@ def _no_entry_point(index, method) -> str:
                 "initialiser, a static block, or a file it failed to parse -- so it has "
                 "nothing to say about how a request reaches it.")
 
-    # A method calling itself -- recursion, or the `super.x()` inside an
-    # override -- is not somebody else calling it, and counting it as one hid
-    # exactly the callback case below. Matched on the owning type rather than
-    # the file, because a module shipped twice under two paths (see
-    # dedup_copies) otherwise looks like each copy calling the other.
-    def identity(m):
-        return (m.owner.name, m.name, m.arity)
-
-    others = [c for c in callers_of(index, method) if identity(c.caller) != identity(method)]
+    others = [c for c in callers_of(index, method)
+              if _identity(c.caller) != _identity(method)]
     if others:
-        return (f"{method.name}() is called only from other internal code: no chain from a "
-                f"request entry point reaches it within {MAX_DEPTH} hops. It may still be "
-                "reachable through a dispatch this name-based call graph cannot follow, such "
-                "as a strategy registry keyed by a string, reflection, or a dynamic proxy.")
+        leaves = _closure_leaves(index, method)
+        mains = [m for m in leaves if m.name == "main"]
+        if mains and len(mains) == len(leaves):
+            where = ", ".join(_describe(m) for m in mains[:MAX_LEAVES_SHOWN])
+            return (f"Every path into {method.name}() terminates at {where}. That is the "
+                    "application's startup path, not a request handler: whatever reaches this "
+                    "code runs at boot, with values chosen by whoever deployed it rather than "
+                    "by a caller of the running service.")
+        if leaves:
+            listed = "; ".join(_describe(m) for m in leaves[:MAX_LEAVES_SHOWN])
+            extra = f" (+{len(leaves) - MAX_LEAVES_SHOWN} more)" if len(leaves) > MAX_LEAVES_SHOWN else ""
+            overrides = [m for m in leaves if m.overrides_supertype and m.owner.supertypes]
+            note = ""
+            if overrides:
+                supers = sorted({t for m in overrides for t in m.owner.supertypes})
+                note = (f" Those are overrides of {', '.join(supers)} that nothing calls by "
+                        "name, so they are dispatched through the interface rather than from "
+                        "a call site this graph can see.")
+                note += _reflective_dispatch_note(index, overrides[0].name)
+            return (f"No chain from a request entry point reaches {method.name}() within "
+                    f"{MAX_DEPTH} hops. Following its callers as far as they go, every path "
+                    f"ends at: {listed}{extra}.{note}")
+        return (f"{method.name}() is called only from other internal code, and no chain from a "
+                f"request entry point reaches it within {MAX_DEPTH} hops.")
 
     owner = _owner_phrase(method)
     where = f", declared in {owner}," if owner else ""
@@ -137,11 +212,13 @@ def _no_entry_point(index, method) -> str:
         return (f"Nothing in this codebase calls {method.name}(){where} and it overrides a "
                 "supertype method, so it is a callback: whatever consumes that type invokes "
                 "it, not application code. No call site here hands it an argument, so judge "
-                "the parameters by what that type's contract supplies.")
+                "the parameters by what that type's contract supplies."
+                + _reflective_dispatch_note(index, method.name))
 
     return (f"Nothing in this codebase calls {method.name}(){where} so no call site shows what "
             "its parameters hold. It is either unused, or invoked by name through reflection, "
-            "configuration or generated code.")
+            "configuration or generated code."
+            + _reflective_dispatch_note(index, method.name))
 
 
 def build_caller_context(target: Path, candidate: dict, index) -> str:
