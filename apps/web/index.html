@@ -222,9 +222,11 @@
         <th data-i18n="history.thStatus"></th>
         <th data-i18n="history.thTime"></th>
         <th></th>
+        <th></th>
       </tr></thead>
       <tbody></tbody>
     </table>
+    <p id="history-msg"></p>
     <div id="scan-detail">
       <div class="detail-header">
         <h3 id="detail-title"></h3>
@@ -290,6 +292,9 @@ const I18N = {
     history: {
       thProject: "项目", thStatus: "状态", thTime: "时间", view: "查看 →",
       empty: "还没有扫描记录，上传一个 zip 试试",
+      delete: "删除",
+      confirmDelete: (name) => `删除「${name}」这次扫描？报告和解压出来的代码会一并删掉，无法恢复。`,
+      deleteFail: (e) => `✕ 删除失败: ${e}`,
     },
     detail: {
       openLink: "在新窗口打开完整报告 →",
@@ -337,6 +342,9 @@ const I18N = {
     history: {
       thProject: "Project", thStatus: "Status", thTime: "Time", view: "View →",
       empty: "No scans yet — upload a zip to get started",
+      delete: "Delete",
+      confirmDelete: (name) => `Delete this scan of "${name}"? Its report and extracted code go with it, and cannot be recovered.`,
+      deleteFail: (e) => `✕ Delete failed: ${e}`,
     },
     detail: {
       openLink: "Open full report in new tab →",
@@ -669,7 +677,7 @@ async function loadHistory() {
     for (const scan of scans) rows.push({ project, scan });
   }
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="4">${t("history.empty")}</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">${t("history.empty")}</td></tr>`;
     return;
   }
   for (const { project, scan } of rows) {
@@ -677,9 +685,27 @@ async function loadHistory() {
     tr.dataset.scanId = scan.id;
     const pillClass = scan.status === "done" ? "pill-done" : scan.status === "failed" ? "pill-failed" : "pill-progress";
     const statusPill = `<span class="pill ${pillClass}">${statusLabel(scan.status)}</span>`;
-    tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td>${esc(scan.started_at ?? "")}</td><td>${t("history.view")}</td>`;
+    tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td>${esc(scan.started_at ?? "")}</td><td>${t("history.view")}</td>`
+      + `<td><button class="small danger-btn" data-delete-scan="${scan.id}">${t("history.delete")}</button></td>`;
     tr.addEventListener("click", () => selectScan(tr, project, scan));
+    tr.querySelector("[data-delete-scan]").addEventListener("click", (ev) => {
+      // Without this the row's own click handler also fires and opens the
+      // detail panel for the scan being deleted.
+      ev.stopPropagation();
+      deleteScan(project, scan);
+    });
     tbody.appendChild(tr);
+  }
+}
+
+async function deleteScan(project, scan) {
+  if (!confirm(t("history.confirmDelete")(project.name))) return;
+  try {
+    await api(`/scans/${scan.id}`, { method: "DELETE" });
+    setMsg($("history-msg"), "", "");
+    loadHistory();
+  } catch (e) {
+    setMsg($("history-msg"), t("history.deleteFail")(e.message), "err");
   }
 }
 

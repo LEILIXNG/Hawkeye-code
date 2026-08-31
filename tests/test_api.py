@@ -155,6 +155,88 @@ class TestProjectsAndScans:
         assert resp.status_code == 409
 
 
+class TestDeleteScan:
+    """DELETE /scans/{id}. Scans are built straight in the database rather
+    than by running a scan: this endpoint's job is row + directory removal,
+    and going through the pipeline would only add a semgrep subprocess the
+    assertions never look at.
+    """
+
+    def _setup(self, client, monkeypatch, tmp_path, status="done"):
+        from apps.api import database as db_module, models
+        from apps.api.routers import scans as scans_router
+
+        # scans.py bound these at import time, so the client fixture's patch
+        # of scanner.common does not reach them -- patch its own copies or
+        # the test deletes directories under the real data/.
+        for name in ("WORKSPACES_DIR", "REPORTS_DIR", "UPLOADS_DIR"):
+            monkeypatch.setattr(scans_router, name, tmp_path / name.lower().replace("_dir", ""))
+
+        upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
+        project_id = upload.json()["id"]
+
+        db = db_module.SessionLocal()
+        scan = models.Scan(project_id=project_id, status=status)
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+        db.close()
+
+        dirs = []
+        for parent in ("workspaces", "reports"):
+            d = tmp_path / parent / scan_id
+            d.mkdir(parents=True)
+            (d / "marker.txt").write_text("x")
+            dirs.append(d)
+        return project_id, scan_id, dirs
+
+    def test_delete_missing_scan_is_404(self, client):
+        assert client.delete("/scans/nope").status_code == 404
+
+    def test_delete_removes_the_scan_and_its_directories(self, client, monkeypatch, tmp_path):
+        _, scan_id, dirs = self._setup(client, monkeypatch, tmp_path)
+
+        assert client.delete(f"/scans/{scan_id}").status_code == 204
+        assert client.get(f"/scans/{scan_id}").status_code == 404
+        for d in dirs:
+            assert not d.exists()
+
+    def test_delete_is_refused_while_the_scan_is_still_running(self, client, monkeypatch, tmp_path):
+        _, scan_id, dirs = self._setup(client, monkeypatch, tmp_path, status="scanning")
+
+        resp = client.delete(f"/scans/{scan_id}")
+        assert resp.status_code == 409
+        # The background task is still writing here, so nothing may be removed.
+        assert client.get(f"/scans/{scan_id}").status_code == 200
+        for d in dirs:
+            assert d.exists()
+
+    def test_deleting_the_last_scan_drops_the_project_and_its_zip(self, client, monkeypatch, tmp_path):
+        project_id, scan_id, _ = self._setup(client, monkeypatch, tmp_path)
+        zip_path = tmp_path / "uploads" / f"{project_id}.zip"
+        assert zip_path.exists()
+
+        client.delete(f"/scans/{scan_id}")
+
+        assert client.get("/projects").json() == []
+        assert not zip_path.exists()
+
+    def test_a_project_survives_while_it_still_has_another_scan(self, client, monkeypatch, tmp_path):
+        from apps.api import database as db_module, models
+
+        project_id, scan_id, _ = self._setup(client, monkeypatch, tmp_path)
+        db = db_module.SessionLocal()
+        db.add(models.Scan(project_id=project_id, status="done"))
+        db.commit()
+        db.close()
+
+        client.delete(f"/scans/{scan_id}")
+
+        assert [p["id"] for p in client.get("/projects").json()] == [project_id]
+        assert (tmp_path / "uploads" / f"{project_id}.zip").exists()
+        assert len(client.get(f"/projects/{project_id}/scans").json()) == 1
+
+
 class TestSettings:
     def test_no_active_config_returns_null(self, client):
         assert client.get("/settings/llm").json() is None

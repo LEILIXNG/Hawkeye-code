@@ -1,3 +1,4 @@
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,10 @@ from scanner.common import REPORTS_DIR, UPLOADS_DIR, WORKSPACES_DIR
 from scanner.pipeline import PipelineError, run_pipeline
 
 router = APIRouter(tags=["scans"])
+
+# Everything that isn't a terminal state. A scan sitting in one of these has
+# a background task still writing to its workspace and report directory.
+RUNNING_STATUSES = frozenset({"queued", "ingesting", "scanning", "verifying", "translating", "reporting"})
 
 
 def _active_llm_config(db: Session) -> models.LLMConfig | None:
@@ -183,6 +188,45 @@ def get_report_json(scan_id: str, db: Session = Depends(get_db)):
     if scan is None or scan.report is None:
         raise HTTPException(404, "report not found")
     return FileResponse(scan.report.json_path, media_type="application/json")
+
+
+def _remove_scan_dir(parent: Path, scan_id: str) -> None:
+    """Delete parent/scan_id, refusing anything that resolves outside parent.
+
+    scan_id is always a database primary key by the time it gets here, never
+    the raw path segment -- but this is the only place in the app where a
+    value that arrived in a URL reaches rmtree, so it is checked instead of
+    assumed.
+    """
+    target = (parent / scan_id).resolve()
+    if target.parent != parent.resolve() or not target.is_dir():
+        return
+    shutil.rmtree(target, ignore_errors=True)
+
+
+@router.delete("/scans/{scan_id}", status_code=204)
+def delete_scan(scan_id: str, db: Session = Depends(get_db)):
+    scan = db.get(models.Scan, scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    if scan.status in RUNNING_STATUSES:
+        raise HTTPException(409, f"scan is still running (status '{scan.status}')")
+
+    project = scan.project
+    _remove_scan_dir(WORKSPACES_DIR, scan.id)
+    _remove_scan_dir(REPORTS_DIR, scan.id)
+    db.delete(scan)  # cascades to candidates -> findings, and to the report row
+    db.commit()
+
+    # A project exists only to own the scans of one uploaded zip, and the
+    # history list is built from scans -- so once the last scan is gone the
+    # project row and its zip are unreachable from the UI and would sit in
+    # data/uploads/ forever. Drop them with the scan that was keeping them
+    # visible.
+    if project is not None and not project.scans:
+        (UPLOADS_DIR / f"{project.id}.zip").unlink(missing_ok=True)
+        db.delete(project)
+        db.commit()
 
 
 @router.get("/projects", response_model=list[schemas.ProjectOut])
