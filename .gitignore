@@ -28,3 +28,6 @@ Thumbs.db
 
 # Manual-test targets -- drop any scanned project in here; it is never committed
 /testdata/
+
+# Windows shortcut -- stores absolute paths, valid only on the machine it was made on
+/Hawkeye.lnk
