@@ -25,3 +25,6 @@ AGENTS.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Manual-test targets -- drop any scanned project in here; it is never committed
+/testdata/
