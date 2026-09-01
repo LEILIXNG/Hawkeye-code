@@ -6,106 +6,101 @@
 
 <p align="center"><a href="README.zh-CN.md">中文</a> · English</p>
 
-A local-first SAST tool for Java/Spring. Semgrep surfaces candidates, a self-built cross-file call graph reconstructs how a request reaches each sink, and an LLM rules on reachability and says how to fix it.
+A local-first SAST tool for Java/Spring. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix.
 
-**Only findings with a complete source→sink path are reported.** Single-user, no GitHub integration, no public server — it runs entirely on your own machine.
+Only findings with a complete source→sink path are reported. Everything runs on your own machine.
 
 ```
 zip → Semgrep candidates → call graph → LLM verdict → report
 ```
 
-## Features
+## Requirements
 
-**Cross-file source→sink analysis, self-built**
-- Semgrep OSS taint analysis is intraprocedural — it stops at the method boundary, so a SQL sink in a service class reports a local string as its "source" and never mentions the `@RequestParam` feeding it.
-- `scanner/callgraph.py` walks the other way: from the sink up through its callers, across files, until it reaches something a request can enter through.
-- Breadth-first with a shared visited set, so depth is bounded by the code rather than by cost. Depth 7 is the measured saturation point of a real layered Spring app.
-- Recognises HTTP handlers, message listeners (Kafka/Rabbit/JMS), and servlet/filter methods by supertype.
-- MyBatis mapper XML is in the graph too: `<mapper namespace>` names the interface, `<select id>` names the method, so a `${}` in a mapper traces back to the controller that reaches it.
+- Python 3.10+
+- An API key for any OpenAI-compatible endpoint (OpenAI, DeepSeek, Kimi, 通义千问, Zhipu GLM, or a self-hosted gateway)
 
-**Semgrep for candidates, not for verdicts**
-- Semgrep is asked only to surface candidate sinks — cheap and fast.
-- Whether each one is genuinely reachable, sanitized, or a false positive is the LLM's call, informed by the call graph.
-- Every verdict carries `reachable` / `sanitized` / `confidence` / `reasoning`, plus an exploit scenario and a concrete fix.
-
-**Fix suggestions, not platitudes**
-- The verifier names the line and the replacement — "swap `${sortParam}` for `#{sortParam}`; where `ORDER BY` cannot be parameterised, map the value through an allowlist of column names".
-- Filled in for reachable and uncertain findings; empty for the ones with nothing to fix.
-
-**Dataflow-scoped by design**
-- A weakness counts only when externally controlled data reaches a dangerous operation.
-- Rules matching a static property — a weak hash, a missing cookie flag, a disabled certificate check — are filtered out by CWE before they cost a verify call. They are real weaknesses; they belong to a different tool.
-- The filter is a CWE denylist, so a vendor rule nobody here has seen is classified the first time it fires.
-
-**Noise removed deterministically, not by feel**
-- Copied modules are merged: the same file shipped under two package names is verified once and the report points at every copy.
-- `scripts/rule_stats.py` reports per-rule and per-(rule, file) hit statistics, so any exclusion is made on evidence.
-- `rules/ruleset.yml` carries generic `exclude_paths` for build output, generated code and vendored dependencies.
-
-**Vendored, pinned rule set**
-- `rules/vendor/semgrep-rules` is a locked git submodule, not a live Registry pull — scans are reproducible across machines and over time.
-- Curated in `rules/ruleset.yml` down to server-side Java/Spring (Android and Lambda rules excluded).
-- Five hand-written rules under `rules/custom` close measured blind spots: command injection, path traversal, XXE, open redirect, MyBatis `${}`.
-- Every custom rule ships an annotated fixture; the test suite fails a rule with no positive or no negative case.
-
-**Bring your own LLM**
-- Any OpenAI-compatible endpoint: OpenAI, DeepSeek, Kimi, 通义千问, Zhipu GLM, a self-hosted gateway.
-- Save several provider configs in the web UI, switch the active one, or pick one per scan without touching `.env`.
-
-**Bilingual reports**
-- zh/en toggle switches the labels *and* the LLM's own prose — reasoning, exploit scenario and fix.
-- Reports open straight from disk; no server needed to read one.
-
-**One process, no build step**
-- FastAPI serves the API and the single-page frontend together. `uvicorn` is the only thing to run.
-- Drag-and-drop upload, filterable inline findings, collapsible settings, automatic light/dark theming.
-
-## Getting started
+## Install
 
 ```bash
 git clone --recurse-submodules https://github.com/LEILIXNG/Hawkeye-code.git
 cd Hawkeye-code
 pip install -r requirements.txt
-copy .env.example .env   # fill in OPENAI_API_KEY, or configure a provider from the settings panel
-uvicorn apps.api.main:app --reload --port 8000
 ```
 
-Open `http://localhost:8000`, drop in a zip, and browse the report.
+Semgrep is pinned in `requirements.txt` — no separate install.
 
 > Cloned without `--recurse-submodules`? Run `git submodule update --init`. Without it `rules/vendor/semgrep-rules` is empty and scans miss most of the rule set.
 
-### Command line
+## Configure
 
-Each stage runs standalone and exchanges JSON files; the logic lives in the importable `scanner/` package shared with the API.
+```bash
+cp .env.example .env
+```
 
-| Script | Does |
-| --- | --- |
-| `scripts/01_scan.py` | Semgrep → deduped, in-scope candidates |
-| `scripts/02_verify.py` | call graph + LLM → verdicts |
-| `scripts/03_eval.py` | score verdicts against `eval/labels.json` |
-| `scripts/04_translate.py` | fill in the other language (optional) |
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | yes | |
+| `OPENAI_BASE_URL` | no | Only for non-OpenAI providers |
+| `OPENAI_VERIFY_MODEL` | no | Model used for verdicts |
 
-`04_translate.py` is optional: skip it and the report reads exactly as before, in whichever language the model answered in.
+Providers can also be configured in the web UI and switched per scan, without editing `.env`.
 
-## Testing
+## Run
+
+```bash
+uvicorn apps.api.main:app --port 8000
+```
+
+Open `http://localhost:8000`, drag in a zip of the project, wait for the scan, read the report. Reports are saved under `data/reports/` and open straight from disk — no server needed to read one.
+
+On Windows, `启动前端.cmd` picks a free port, starts the server and opens the browser.
+
+## Command line
+
+Each stage runs standalone and exchanges JSON files under `data/`.
+
+```bash
+python scripts/01_scan.py --target /path/to/repo
+python scripts/02_verify.py --target /path/to/repo
+python scripts/03_eval.py
+python scripts/04_translate.py          # optional
+```
+
+| Script | Does | Writes |
+| --- | --- | --- |
+| `01_scan.py` | Semgrep → deduped, in-scope candidates | `data/candidates.json` |
+| `02_verify.py` | call graph + LLM → verdicts | `data/verified.json` |
+| `03_eval.py` | score verdicts against `eval/labels.json` | stdout |
+| `04_translate.py` | fill in the other language | rewrites `data/verified.json` |
+
+Useful flags: `--config p/java,p/owasp-top-ten` (01), `--limit N` (02, 04).
+
+Skip `04_translate.py` and the report reads in whichever language the model answered in. HTML reports are produced by the web UI, not by these scripts.
+
+## Test
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-- 213 unit tests cover the deterministic half: dedup, path handling, context extraction, the call graph, the rule set contract and the API's HTTP surface.
-- No test makes a real LLM call — nondeterministic, billed output does not belong in CI.
-- LLM quality is tracked separately through `eval/labels.json`.
+213 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph, the rule set contract, the HTTP API. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
+
+## How it works
+
+- **Cross-file analysis.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph.py` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Recognises HTTP handlers, message listeners (Kafka/Rabbit/JMS), Servlet/Filter methods, and MyBatis mapper XML.
+- **Semgrep for candidates, LLM for verdicts.** Every verdict carries `reachable` / `sanitized` / `confidence` / `reasoning`, plus an exploit scenario and a concrete fix naming the line and the replacement.
+- **Dataflow-scoped.** Findings that match a static property — weak hash, missing cookie flag, disabled cert check — are filtered out by CWE before they cost a verify call.
+- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated in `rules/ruleset.yml` down to server-side Java/Spring. Five custom rules under `rules/custom` cover command injection, path traversal, XXE, open redirect and MyBatis `${}`.
+
+Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 
 ## Status
 
-Phase 1 is done — upload → scan → report works end to end — and has been iterated on since.
+Phase 1 is done — upload → scan → report works end to end.
 
 - 19 hand-labeled candidates in `eval/labels.json`, all matched by the current rule set, agreement 18/19 on the most recent full run.
-- The verifier flips roughly 16% of verdicts between identical re-runs, so a ±1 move on 19 labels is noise. Engine changes are argued with deterministic counts instead: candidates without a reachable entry point, methods no longer truncated, chains recovered.
+- The verifier flips roughly 16% of verdicts between identical re-runs, so a ±1 move on 19 labels is noise. Engine changes are argued with deterministic counts instead.
 - Measured on a real 13-module Maven application, not only on a teaching target.
-
-`docs/framework.md` has the full architecture; `CLAUDE.md` has the development conventions.
 
 ## License
 
