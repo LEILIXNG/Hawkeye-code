@@ -139,6 +139,34 @@
     animation: spin 0.7s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  #scan-progress { margin-top: 0.9rem; }
+  /* Named pstep-*, not step-*: `.step` is already the numbered badge in the
+     <h2> section headings, and reusing it here made those badges flex to
+     the full width of the heading. */
+  .stepper { display: flex; align-items: flex-start; }
+  .pstep { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.35rem; position: relative; }
+  /* The connector is drawn by each step except the first, reaching back to
+     the previous one, so it never overhangs the ends of the row. */
+  .pstep:not(:first-child)::before {
+    content: ""; position: absolute; height: 2px; background: var(--border);
+    top: 0.65rem; right: 50%; left: -50%; z-index: 0;
+  }
+  .pstep.done::before, .pstep.active::before { background: var(--primary); }
+  .pstep.failed::before { background: var(--danger); }
+  .pstep-dot {
+    width: 1.3rem; height: 1.3rem; border-radius: 50%; z-index: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700; background: var(--surface);
+    border: 2px solid var(--border); color: var(--text-faint);
+  }
+  .pstep.done .pstep-dot { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .pstep.active .pstep-dot { border-color: var(--primary); color: var(--primary); }
+  .pstep.failed .pstep-dot { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .pstep-label { font-size: 0.72rem; color: var(--text-faint); text-align: center; line-height: 1.3; }
+  .pstep.done .pstep-label, .pstep.active .pstep-label { color: var(--text); }
+  .pstep.active .pstep-label { font-weight: 600; }
+  .pstep.failed .pstep-label { color: var(--danger); font-weight: 600; }
+  .pstep-elapsed { font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
   table { width: 100%; border-collapse: collapse; margin-top: 0.4rem; font-size: 0.85rem; }
   td, th { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); }
   th { color: var(--text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -210,6 +238,7 @@
     <div class="row">
       <button id="upload-btn" class="primary" data-i18n="upload.button"></button>
     </div>
+    <div id="scan-progress" style="display:none"></div>
     <p id="status-msg"></p>
     <a id="report-link" class="report-link" style="display:none" target="_blank" data-i18n="report.link"></a>
   </section>
@@ -326,7 +355,11 @@ const I18N = {
       uploading: "上传中...", uploadFail: (e) => `✕ 失败: ${e}`,
       selectedFile: (name) => `已选择: ${name}`,
     },
-    status: { ingesting: "解压中", scanning: "扫描中", verifying: "LLM 复核中", translating: "翻译中", done: "扫描完成", failed: "扫描失败" },
+    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败" },
+    progress: {
+      steps: { ingesting: "解压", scanning: "扫描", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
+      elapsed: (clock) => `已用 ${clock}`,
+    },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     stats: { reachable: "漏洞总数", safe: "安全数量", needsReview: "需要人工复查" },
@@ -376,7 +409,11 @@ const I18N = {
       uploading: "Uploading...", uploadFail: (e) => `✕ Failed: ${e}`,
       selectedFile: (name) => `Selected: ${name}`,
     },
-    status: { ingesting: "Extracting", scanning: "Scanning", verifying: "LLM verifying", translating: "Translating", done: "Scan complete", failed: "Scan failed" },
+    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed" },
+    progress: {
+      steps: { ingesting: "Extract", scanning: "Scan", verifying: "Verify", translating: "Translate", reporting: "Report" },
+      elapsed: (clock) => `${clock} elapsed`,
+    },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
     stats: { reachable: "Vulnerabilities found", safe: "Safe count", needsReview: "Needs manual review" },
@@ -616,12 +653,14 @@ $("upload-btn").addEventListener("click", async () => {
   const reportLink = $("report-link");
   const uploadBtn = $("upload-btn");
   reportLink.style.display = "none";
+  $("scan-progress").style.display = "none";
   const file = $("file-input").files[0];
   if (!file) { setMsg(statusMsg, t("msg.selectZipFirst"), "err"); return; }
 
   uploadBtn.disabled = true;
   try {
     setMsg(statusMsg, t("msg.uploading"), "");
+    beginProgress();
     const form = new FormData();
     form.append("file", file);
     const project = await api("/uploads", { method: "POST", body: form });
@@ -637,6 +676,9 @@ $("upload-btn").addEventListener("click", async () => {
     fileInput.value = "";
     dropzoneFilename.textContent = "";
   } catch (e) {
+    // Upload or scan creation threw, so pollScan never ran and never got to
+    // stop the clock it was going to own.
+    stopElapsed();
     setMsg(statusMsg, t("msg.uploadFail")(e.message), "err");
   } finally {
     uploadBtn.disabled = false;
@@ -647,17 +689,79 @@ function statusLabel(status) {
   return t(`status.${status}`) || status;
 }
 
+// The pipeline's on_status calls, in the order scanner/pipeline.py emits
+// them. "queued" sits before all of these and "done"/"failed" after, so
+// neither belongs in the list.
+const PIPELINE_STEPS = ["ingesting", "scanning", "verifying", "translating", "reporting"];
+let lastActiveStep = -1;
+let elapsedTimer = null;
+
+function formatClock(ms) {
+  const total = Math.floor(ms / 1000);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function renderProgress(status) {
+  const idx = PIPELINE_STEPS.indexOf(status);
+  // Remembered because "failed" does not say which stage failed -- the last
+  // stage we saw running is the one that did.
+  if (idx >= 0) lastActiveStep = idx;
+  const isDone = status === "done";
+  const isFailed = status === "failed";
+
+  // State comes from position relative to the current step, not from a flag
+  // per step: a run can skip `translating` (pipeline.py only calls it when
+  // the report needs another language), and a skipped stage should read as
+  // finished rather than sit there looking stuck.
+  $("stepper").innerHTML = PIPELINE_STEPS.map((step, i) => {
+    let state = "";
+    if (isDone || i < lastActiveStep) state = "done";
+    else if (i === lastActiveStep) state = isFailed ? "failed" : "active";
+    const mark = state === "done" ? "✓" : state === "failed" ? "!" : String(i + 1);
+    return `<div class="pstep ${state}"><div class="pstep-dot">${mark}</div>`
+      + `<div class="pstep-label">${t(`progress.steps.${step}`)}</div></div>`;
+  }).join("");
+}
+
+function startElapsed() {
+  const startedAt = Date.now();
+  stopElapsed();
+  const tick = () => {
+    const el = $("step-elapsed");
+    if (el) el.textContent = t("progress.elapsed")(formatClock(Date.now() - startedAt));
+  };
+  tick();
+  elapsedTimer = setInterval(tick, 1000);
+}
+
+function stopElapsed() {
+  if (elapsedTimer) clearInterval(elapsedTimer);
+  elapsedTimer = null;
+}
+
+function beginProgress() {
+  lastActiveStep = -1;
+  const box = $("scan-progress");
+  box.style.display = "block";
+  box.innerHTML = `<div class="stepper" id="stepper"></div><p class="pstep-elapsed" id="step-elapsed"></p>`;
+  renderProgress("queued");
+  startElapsed();
+}
+
 async function pollScan(scanId, statusMsg, reportLink) {
   while (true) {
     const scan = await api(`/scans/${scanId}`);
     const label = statusLabel(scan.status);
+    renderProgress(scan.status);
     if (scan.status === "done") {
+      stopElapsed();
       setMsg(statusMsg, `✓ ${label}`, "ok");
       reportLink.href = `/scans/${scanId}/report.html`;
       reportLink.style.display = "inline-flex";
       return;
     }
     if (scan.status === "failed") {
+      stopElapsed();
       setMsg(statusMsg, `✕ ${label}${scan.error_message ? `: ${scan.error_message}` : ""}`, "err");
       return;
     }
