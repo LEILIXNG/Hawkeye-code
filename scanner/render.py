@@ -82,6 +82,21 @@ def _sink_basename(item: dict) -> str:
     return item["sink_file"].replace("\\", "/").rsplit("/", 1)[-1]
 
 
+def short_location(path: str, keep: int = 2) -> str:
+    """The trailing `keep` segments of a path, with a leading ellipsis.
+
+    A real project's sink paths run to 60+ characters of
+    src/main/java/org/... that is identical across every finding, which in a
+    collapsed card pushes the parts that actually differ off the end of the
+    row. The full path stays on the row's title attribute and in the card
+    body, so nothing is lost -- only the shared prefix is.
+    """
+    parts = [p for p in path.replace("\\", "/").split("/") if p]
+    if len(parts) <= keep:
+        return "/".join(parts)
+    return ".../" + "/".join(parts[-keep:])
+
+
 def _facet_counts(verified: list[dict], key_fn) -> list[tuple[str, int]]:
     counts = Counter(key_fn(item) for item in verified)
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -101,11 +116,12 @@ def _card_html(item: dict) -> str:
     return f"""
     <details class="card" data-bucket="{filter_bucket}" data-type="{html.escape(vuln_type)}"
               data-file="{html.escape(item["sink_file"])}" data-severity="{html.escape(severity)}">
-      <summary>
+      <summary title="{html.escape(item["sink_file"])}:{item["sink_line"]}">
         <span class="badge {badge_class}" data-i18n="reachable.{badge_key}"></span>
-        <span class="severity">{html.escape(severity)}</span>
-        <span class="location">{html.escape(item["sink_file"])}:{item["sink_line"]}</span>
-        <span class="rule">{html.escape(rule_ids)}</span>
+        <span class="vuln-type">{html.escape(vuln_type)}</span>
+        <span class="severity sev-{html.escape(severity)}">{html.escape(severity)}</span>
+        <span class="location"><span class="loc-path">{html.escape(short_location(item["sink_file"]))}</span><span class="loc-line">:{item["sink_line"]}</span></span>
+        <span class="rule" title="{html.escape(rule_ids)}">{html.escape(rule_ids)}</span>
       </summary>
       <div class="card-body">
         <p><strong data-i18n="card.type"></strong> {html.escape(vuln_type)}</p>
@@ -154,6 +170,7 @@ def _duplicates_html(item: dict) -> str:
 # (summary key, i18n key, css class) and (filter bucket, i18n key) -- the
 # visible text is filled in by the page's own applyI18n(), not here.
 _STAT_CARDS = [
+    ("total", "stats.total", "stat-total"),
     ("reachable", "stats.reachable", "stat-yes"),
     ("not_reachable", "stats.safe", "stat-no"),
     ("needs_review", "stats.needsReview", "stat-uncertain"),
@@ -168,17 +185,44 @@ _FILTERS = [
 ]
 
 
-def _facet_list_html(facet_name: str, counts: list[tuple[str, int]], total: int, label_fn=html.escape) -> str:
+# How many facet values a paginated column shows before "show more". Only
+# the file column uses it -- a real project has one entry per file with a
+# finding, which is far more than the handful of vulnerability types or the
+# three severities.
+FACET_PAGE_SIZE = 8
+
+
+def _facet_list_html(facet_name: str, counts: list[tuple[str, int]], total: int, label_fn=html.escape,
+                     page_size: int | None = None) -> str:
     items = [
         f'<button class="facet-item active" data-facet="{facet_name}" data-value="">'
         f'<span data-i18n="facet.all"></span> ({total})</button>'
     ]
-    for value, count in counts:
+    for index, (value, count) in enumerate(counts):
+        beyond_page = page_size is not None and index >= page_size
         items.append(
-            f'<button class="facet-item" data-facet="{facet_name}" data-value="{html.escape(value)}" title="{html.escape(value)}">'
+            f'<button class="facet-item{" hidden" if beyond_page else ""}" data-facet="{facet_name}"'
+            f' data-value="{html.escape(value)}" title="{html.escape(value)}">'
             f'{label_fn(value)} ({count})</button>'
         )
     return "\n".join(items)
+
+
+def _facet_col_html(facet_name: str, counts: list[tuple[str, int]], total: int, label_fn=html.escape,
+                    page_size: int | None = None) -> str:
+    """One facet column. The "show more" button sits outside .facet-list so
+    it stays put instead of scrolling away with the items it reveals."""
+    more = ""
+    if page_size is not None and len(counts) > page_size:
+        more = (f'<button class="facet-more" type="button" data-facet-more="{facet_name}">'
+                f'<span data-i18n="facet.more"></span> <span class="more-count"></span></button>')
+    return f"""
+    <div class="facet-col">
+      <h3 data-i18n="facet.{facet_name}"></h3>
+      <div class="facet-list">{_facet_list_html(facet_name, counts, total, label_fn, page_size)}</div>
+      {more}
+    </div>
+    """
 
 
 def render_html(verified: list[dict], project_name: str) -> str:
@@ -202,20 +246,13 @@ def render_html(verified: list[dict], project_name: str) -> str:
     file_counts = _facet_counts(verified, lambda i: i["sink_file"])
     severity_counts = _facet_counts(verified, lambda i: i.get("severity") or "UNKNOWN")
 
-    facets_html = f"""
-    <div class="facet-col">
-      <h3 data-i18n="facet.type"></h3>
-      <div class="facet-list">{_facet_list_html("type", type_counts, total)}</div>
-    </div>
-    <div class="facet-col">
-      <h3 data-i18n="facet.file"></h3>
-      <div class="facet-list">{_facet_list_html("file", file_counts, total, label_fn=lambda v: html.escape(v.replace(chr(92), "/").rsplit("/", 1)[-1]))}</div>
-    </div>
-    <div class="facet-col">
-      <h3 data-i18n="facet.severity"></h3>
-      <div class="facet-list">{_facet_list_html("severity", severity_counts, total)}</div>
-    </div>
-    """
+    facets_html = "".join([
+        _facet_col_html("type", type_counts, total),
+        _facet_col_html("file", file_counts, total,
+                        label_fn=lambda v: html.escape(v.replace(chr(92), "/").rsplit("/", 1)[-1]),
+                        page_size=FACET_PAGE_SIZE),
+        _facet_col_html("severity", severity_counts, total),
+    ])
 
     i18n_json = json.dumps(REPORT_I18N, ensure_ascii=False)
     project_json = json.dumps(project_name, ensure_ascii=False)
@@ -312,9 +349,21 @@ def render_html(verified: list[dict], project_name: str) -> str:
   }}
   .facet-item:hover {{ background: var(--bg); }}
   .facet-item.active {{ background: var(--primary-soft); color: var(--primary); font-weight: 600; }}
+  .facet-item.hidden {{ display: none; }}
+  .facet-more {{
+    font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+    margin-top: 0.4rem; padding: 0.3rem 0; border: none; background: none;
+    color: var(--primary); text-align: left; width: 100%;
+  }}
+  .facet-more .more-count {{ color: var(--text-faint); font-weight: 400; }}
   .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.6rem; padding: 0.5rem 0.9rem; box-shadow: var(--shadow); }}
   .card[data-hidden] {{ display: none; }}
-  .card summary {{ cursor: pointer; display: flex; gap: 0.6rem; align-items: center; padding: 0.5rem 0; list-style: none; flex-wrap: wrap; }}
+  /* nowrap, not wrap: a long vulnerability type used to push the rule id
+     onto a second line, so rows silently doubled in height depending on how
+     wordy their CWE name was. Everything that can lose characters without
+     losing meaning (the path, the rule id) ellipsises instead. */
+  .card summary {{ cursor: pointer; display: flex; gap: 0.6rem; align-items: center; padding: 0.5rem 0; list-style: none; flex-wrap: nowrap; }}
+  .card summary > .badge, .card summary > .vuln-type, .card summary > .severity {{ flex-shrink: 0; }}
   .card summary::-webkit-details-marker {{ display: none; }}
   .card-body {{ padding: 0.6rem 0.2rem 0.5rem; line-height: 1.7; border-top: 1px solid var(--border); margin-top: 0.3rem; }}
   .card-body p {{ margin: 0.4rem 0; font-size: 0.88rem; }}
@@ -325,9 +374,29 @@ def render_html(verified: list[dict], project_name: str) -> str:
   .badge-no {{ background: var(--success); }}
   .badge-uncertain {{ background: var(--warning); }}
   .badge-failed {{ background: var(--neutral); }}
-  .severity {{ font-size: 0.75rem; color: var(--text-muted); }}
-  .location {{ font-family: ui-monospace, monospace; font-size: 0.85rem; }}
-  .rule {{ font-size: 0.8rem; color: var(--text-faint); margin-left: auto; }}
+  .vuln-type {{ font-size: 0.82rem; font-weight: 650; }}
+  .severity {{
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem; border-radius: 4px;
+    background: var(--neutral-soft); color: var(--neutral);
+  }}
+  .sev-ERROR {{ background: var(--danger-soft); color: var(--danger); }}
+  .sev-WARNING {{ background: var(--warning-soft); color: var(--warning); }}
+  /* The line number is split out and pinned so it survives the ellipsis:
+     several findings can share one file and differ only by line, and
+     truncating "File.java:118" down to "File.java:..." makes those rows
+     indistinguishable -- exactly the information the row exists to carry. */
+  .location {{ display: flex; min-width: 0; font-family: ui-monospace, monospace; font-size: 0.82rem; color: var(--text-muted); }}
+  .loc-path {{ min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .loc-line {{ flex-shrink: 0; }}
+  /* Capped and ellipsised rather than wrapped: a long rule id used to push
+     itself onto a second line and double the height of every collapsed row.
+     The full id is on the element's title. */
+  .rule {{
+    font-size: 0.78rem; color: var(--text-faint); margin-left: auto;
+    max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }}
+  #toggle-all {{ margin-left: auto; }}
   .empty-state {{ text-align: center; color: var(--text-faint); padding: 3rem 0; font-size: 0.9rem; }}
 </style>
 </head>
@@ -341,6 +410,7 @@ def render_html(verified: list[dict], project_name: str) -> str:
   </div>
   <div class="filters">
     {filter_buttons}
+    <button id="toggle-all" class="filter-btn" type="button" data-i18n="actions.expandAll"></button>
   </div>
   <div class="facets">
     {facets_html}
@@ -389,7 +459,10 @@ def render_html(verified: list[dict], project_name: str) -> str:
   applyI18n();
 
   const cards = Array.from(document.querySelectorAll('.card'));
-  const reachableButtons = Array.from(document.querySelectorAll('.filter-btn'));
+  // [data-filter] matters: #toggle-all shares .filter-btn for its pill
+  // styling, and without the attribute it got wired up as a verdict filter
+  // too -- one click set the verdict to undefined and hid every card.
+  const reachableButtons = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
   const facetButtons = Array.from(document.querySelectorAll('.facet-item'));
   const emptyMsg = document.getElementById('empty-filter');
 
@@ -416,6 +489,37 @@ def render_html(verified: list[dict], project_name: str) -> str:
       active.reachable = btn.dataset.filter;
       applyFilters();
     }});
+  }});
+
+  // Only the cards a filter is currently showing are opened, so "expand
+  // all" after narrowing to one file does not also unfold the 40 findings
+  // the reader just filtered away. The label lives in data-i18n rather than
+  // in textContent so applyI18n() keeps it correct across a language switch.
+  const toggleAll = document.getElementById('toggle-all');
+  toggleAll.addEventListener('click', () => {{
+    const expand = toggleAll.dataset.i18n === 'actions.expandAll';
+    cards.filter((c) => !c.hasAttribute('data-hidden')).forEach((c) => {{ c.open = expand; }});
+    toggleAll.dataset.i18n = expand ? 'actions.collapseAll' : 'actions.expandAll';
+    applyI18n();
+  }});
+
+  // Reveals one more page of facet values per click. A facet hidden this
+  // way is only hidden from the list -- it never affects which cards match,
+  // so revealing more cannot change the current filtering.
+  document.querySelectorAll('.facet-more').forEach((btn) => {{
+    const facet = btn.dataset.facetMore;
+    const stillHidden = () =>
+      Array.from(document.querySelectorAll('.facet-item[data-facet="' + facet + '"].hidden'));
+    const refresh = () => {{
+      const left = stillHidden().length;
+      btn.querySelector('.more-count').textContent = left ? '(' + left + ')' : '';
+      btn.style.display = left ? '' : 'none';
+    }};
+    btn.addEventListener('click', () => {{
+      stillHidden().slice(0, {FACET_PAGE_SIZE}).forEach((el) => el.classList.remove('hidden'));
+      refresh();
+    }});
+    refresh();
   }});
 
   facetButtons.forEach((btn) => {{

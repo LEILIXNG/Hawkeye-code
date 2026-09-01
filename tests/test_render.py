@@ -3,7 +3,8 @@
 not logic worth pinning down in a unit test)."""
 import re
 
-from scanner.render import build_summary, render, render_html
+from scanner.render import (FACET_PAGE_SIZE, _card_html, build_summary, render, render_html,
+                            short_location)
 from scanner.report_i18n import REPORT_I18N
 
 
@@ -156,3 +157,57 @@ class TestBilingualProse:
         out = render_html([item], "p")
         assert 'onmouseover="alert(1)' not in out
         assert "&quot;" in out
+
+
+class TestShortLocation:
+    def test_keeps_a_short_path_whole(self):
+        assert short_location("A.java") == "A.java"
+        assert short_location("web/A.java") == "web/A.java"
+
+    def test_ellipsises_the_shared_prefix_of_a_deep_path(self):
+        deep = "src/main/java/org/sasanlabs/service/vulnerability/sqli/SQLInjection.java"
+        assert short_location(deep) == ".../sqli/SQLInjection.java"
+
+    def test_normalizes_windows_separators(self):
+        assert short_location(r"src\main\java\A.java") == ".../java/A.java"
+
+    def test_full_path_stays_on_the_row_title(self):
+        item = {
+            "sink_file": "src/main/java/org/x/Deep.java", "sink_line": 7,
+            "source_file": "src/main/java/org/x/Deep.java", "source_line": 3,
+            "rule_id": "r", "message": "m", "severity": "ERROR",
+            "finding": {"reachable": "yes", "reasoning": "why"},
+        }
+        card = _card_html(item)
+        assert 'title="src/main/java/org/x/Deep.java:7"' in card
+        assert '<span class="loc-path">.../x/Deep.java</span><span class="loc-line">:7</span>' in card
+
+
+class TestFacetPagination:
+    def _items(self, html_text, facet):
+        return re.findall(rf'<button class="facet-item([^"]*)" data-facet="{facet}"', html_text)
+
+    def test_file_facet_hides_everything_past_the_first_page(self):
+        items = [make_item(sink_file=f"src/main/java/F{n}.java") for n in range(20)]
+        page = render_html(items, "demo")
+        classes = self._items(page, "file")
+
+        # 20 files + the "All" entry, which is never paginated away.
+        assert len(classes) == 21
+        assert sum(" hidden" in c for c in classes) == 20 - FACET_PAGE_SIZE
+        assert 'data-facet-more="file"' in page
+
+    def test_a_short_file_list_gets_no_show_more_button(self):
+        items = [make_item(sink_file=f"src/F{n}.java") for n in range(FACET_PAGE_SIZE)]
+        page = render_html(items, "demo")
+
+        assert "hidden" not in "".join(self._items(page, "file"))
+        assert 'data-facet-more="file"' not in page
+
+    def test_other_facets_are_never_paginated(self):
+        items = [make_item(sink_file=f"src/F{n}.java") for n in range(20)]
+        page = render_html(items, "demo")
+
+        assert "hidden" not in "".join(self._items(page, "severity"))
+        assert 'data-facet-more="severity"' not in page
+        assert 'data-facet-more="type"' not in page
