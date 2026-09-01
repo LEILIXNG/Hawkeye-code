@@ -152,8 +152,10 @@ class TestProjectsAndScans:
         # the chances of the 429 that fails the whole scan.
         assert translate_flags == [False]
         # Comes from the chosen config, which was saved without an explicit
-        # value and so defaults to sequential.
-        assert concurrencies == [1]
+        # value and so carries the default.
+        from apps.api.models import DEFAULT_CONCURRENCY
+
+        assert concurrencies == [DEFAULT_CONCURRENCY]
 
     def test_create_scan_with_unknown_llm_config_id_is_404(self, client):
         upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
@@ -356,20 +358,27 @@ class TestSettings:
         assert "abcdefgh1234" not in cfg["api_key_masked"]
         assert cfg["api_key_masked"].startswith("sk-a")
 
-    def test_concurrency_defaults_to_sequential(self, client):
+    def test_concurrency_defaults_to_the_configured_default(self, client):
+        from apps.api.models import DEFAULT_CONCURRENCY
+
         saved = client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m"}).json()
 
-        assert saved["concurrency"] == 1
+        assert saved["concurrency"] == DEFAULT_CONCURRENCY
 
     def test_concurrency_round_trips(self, client):
-        client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m", "concurrency": 4})
+        from apps.api.models import MAX_CONCURRENCY
 
-        assert client.get("/settings/llm").json()["concurrency"] == 4
+        client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m",
+                                           "concurrency": MAX_CONCURRENCY})
+
+        assert client.get("/settings/llm").json()["concurrency"] == MAX_CONCURRENCY
 
     def test_concurrency_outside_the_cap_is_rejected(self, client):
-        # Capped rather than clamped: silently running 100 at a time because
-        # someone typed 100 is how an endpoint gets hammered into a 429.
-        for bad in (0, 9, -1):
+        # Capped rather than clamped: silently running MAX because someone
+        # typed 100 is how an endpoint gets hammered into a 429.
+        from apps.api.models import MAX_CONCURRENCY
+
+        for bad in (0, -1, MAX_CONCURRENCY + 1):
             resp = client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m", "concurrency": bad})
             assert resp.status_code == 422, bad
 

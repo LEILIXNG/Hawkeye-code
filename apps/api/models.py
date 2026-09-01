@@ -14,6 +14,19 @@ def _uuid() -> str:
     return uuid.uuid4().hex
 
 
+# What a new LLM config starts at. Not 1: sequential verification is the
+# slowest thing in a scan, and the 429s seen on this endpoint were the
+# provider's own load rather than our request rate, so pacing at one call
+# at a time was buying very little. Turn it down per config if an endpoint
+# turns out to be strict.
+DEFAULT_CONCURRENCY = 5
+
+# The ceiling the settings form and the API will accept. A limit rather than
+# free-form entry: the failure mode of too high is not "slower", it is the
+# 429 that fails a whole scan, and that is not obvious from a text box.
+MAX_CONCURRENCY = 15
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -113,5 +126,5 @@ class LLMConfig(Base):
     # How many verify calls this provider may have in flight at once. Lives
     # on the config rather than on the scan because it is a property of the
     # endpoint's tolerance, not of the code being scanned.
-    concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    concurrency: Mapped[int] = mapped_column(Integer, default=DEFAULT_CONCURRENCY)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from apps.api.models import DEFAULT_CONCURRENCY, MAX_CONCURRENCY
+
 
 class ProjectOut(BaseModel):
     id: str
@@ -51,9 +53,7 @@ class LLMConfigIn(BaseModel):
     api_key: str | None = None
     verify_model: str
     report_model: str | None = None
-    # Capped rather than free-form: past 8 the wall-clock gain flattens while
-    # the odds of the 429 that fails a whole scan keep climbing.
-    concurrency: int = Field(default=1, ge=1, le=8)
+    concurrency: int = Field(default=DEFAULT_CONCURRENCY, ge=1, le=MAX_CONCURRENCY)
 
 
 class LLMConfigOut(BaseModel):

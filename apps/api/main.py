@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from apps.api.database import Base, SessionLocal, engine
+from apps.api.models import DEFAULT_CONCURRENCY
 from apps.api.routers import scans, settings, uploads
 from scanner.common import ROOT, ensure_data_dir
 
@@ -63,7 +64,7 @@ def _ensure_llm_configs_concurrency_column() -> None:
     with engine.connect() as conn:
         columns = {row[1] for row in conn.execute(text("PRAGMA table_info(llm_configs)"))}
         if "concurrency" not in columns:
-            conn.execute(text("ALTER TABLE llm_configs ADD COLUMN concurrency INTEGER DEFAULT 1"))
+            conn.execute(text(f"ALTER TABLE llm_configs ADD COLUMN concurrency INTEGER DEFAULT {DEFAULT_CONCURRENCY}"))
             conn.commit()
 
 

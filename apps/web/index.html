@@ -299,7 +299,7 @@
       <label data-i18n="settings.verifyModel"></label>
       <input id="verify-model" placeholder="gpt-4o-mini / glm-4-flash / deepseek-chat">
       <label data-i18n="settings.concurrency"></label>
-      <input id="concurrency" type="number" min="1" max="8" step="1" value="1">
+      <input id="concurrency" type="number" min="1" max="15" step="1" value="5">
       <p class="field-hint" data-i18n="settings.concurrencyHint"></p>
       <div class="row">
         <button id="test-btn" data-i18n="settings.testBtn"></button>
@@ -359,7 +359,7 @@ const I18N = {
       thName: "名称", thModel: "模型", thStatus: "状态",
       empty: "还没有保存过配置", active: "使用中", enable: "启用", delete: "删除",
       concurrency: "并发数",
-      concurrencyHint: "同时发出的复核请求数(1-8)。调大更快，但撞上限流的机会也更多——供应商返回 429 会让整轮扫描失败。不确定就保持 1。",
+      concurrencyHint: "同时发出的复核请求数(1-15)。调大更快，但撞上限流的机会也更多——供应商返回 429 会让整轮扫描失败。这个端点频繁限流的话就往下调。",
       officialOpenAI: "(官方 OpenAI)",
     },
     msg: {
@@ -416,7 +416,7 @@ const I18N = {
       thName: "Name", thModel: "Model", thStatus: "Status",
       empty: "No saved configs yet", active: "Active", enable: "Enable", delete: "Delete",
       concurrency: "Concurrency",
-      concurrencyHint: "Verify requests in flight at once (1-8). Higher is faster but meets rate limits sooner -- a 429 from the provider fails the whole scan. Leave it at 1 if unsure.",
+      concurrencyHint: "Verify requests in flight at once (1-15). Higher is faster but meets rate limits sooner -- a 429 from the provider fails the whole scan. Turn it down if this endpoint throttles often.",
       officialOpenAI: "(Official OpenAI)",
     },
     msg: {
@@ -537,7 +537,7 @@ $("save-btn").addEventListener("click", async () => {
         base_url: $("base-url").value || null,
         api_key: $("api-key").value,
         verify_model: $("verify-model").value,
-        concurrency: Number($("concurrency").value) || 1,
+        concurrency: Number($("concurrency").value) || 5,
       }),
     });
     setMsg(msg, t("msg.savedActivated"), "ok");
@@ -553,7 +553,7 @@ async function loadActiveConfig() {
     if (!cfg) return;
     $("base-url").value = cfg.base_url || "";
     $("verify-model").value = cfg.verify_model || "";
-    $("concurrency").value = cfg.concurrency || 1;
+    $("concurrency").value = cfg.concurrency || 5;
   } catch (e) { /* ignore */ }
 }
 
