@@ -108,7 +108,13 @@ class TestProjectsAndScans:
         from apps.api.routers import scans as scans_router
         from scanner.render import render as real_render
 
-        def fake_run_pipeline(zip_path, workspace_dir, report_dir, project_name, provider, model, on_status=lambda s: None):
+        translate_flags = []
+        concurrencies = []
+
+        def fake_run_pipeline(zip_path, workspace_dir, report_dir, project_name, provider, model,
+                              on_status=lambda s: None, translate=True, concurrency=1):
+            translate_flags.append(translate)
+            concurrencies.append(concurrency)
             on_status("done")
             return real_render([], project_name, report_dir)
 
@@ -141,6 +147,13 @@ class TestProjectsAndScans:
         final = client.get(f"/scans/{scan_id}").json()
         assert final["llm_config_id"] == glm["id"]
         assert final["status"] == "done"
+        # The web pipeline does not run the translate stage: it is a second
+        # LLM pass per finding, and on a rate-limited endpoint it doubles
+        # the chances of the 429 that fails the whole scan.
+        assert translate_flags == [False]
+        # Comes from the chosen config, which was saved without an explicit
+        # value and so defaults to sequential.
+        assert concurrencies == [1]
 
     def test_create_scan_with_unknown_llm_config_id_is_404(self, client):
         upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
@@ -342,6 +355,23 @@ class TestSettings:
         assert cfg["verify_model"] == "deepseek-chat"
         assert "abcdefgh1234" not in cfg["api_key_masked"]
         assert cfg["api_key_masked"].startswith("sk-a")
+
+    def test_concurrency_defaults_to_sequential(self, client):
+        saved = client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m"}).json()
+
+        assert saved["concurrency"] == 1
+
+    def test_concurrency_round_trips(self, client):
+        client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m", "concurrency": 4})
+
+        assert client.get("/settings/llm").json()["concurrency"] == 4
+
+    def test_concurrency_outside_the_cap_is_rejected(self, client):
+        # Capped rather than clamped: silently running 100 at a time because
+        # someone typed 100 is how an endpoint gets hammered into a 429.
+        for bad in (0, 9, -1):
+            resp = client.post("/settings/llm", json={"api_key": "sk-x", "verify_model": "m", "concurrency": bad})
+            assert resp.status_code == 422, bad
 
     def test_test_connection_without_key_fails_fast(self, client):
         resp = client.post("/settings/llm/test", json={"verify_model": "gpt-4o-mini"})

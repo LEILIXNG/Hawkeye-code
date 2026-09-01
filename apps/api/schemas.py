@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProjectOut(BaseModel):
@@ -51,6 +51,9 @@ class LLMConfigIn(BaseModel):
     api_key: str | None = None
     verify_model: str
     report_model: str | None = None
+    # Capped rather than free-form: past 8 the wall-clock gain flattens while
+    # the odds of the 429 that fails a whole scan keep climbing.
+    concurrency: int = Field(default=1, ge=1, le=8)
 
 
 class LLMConfigOut(BaseModel):
@@ -62,6 +65,7 @@ class LLMConfigOut(BaseModel):
     verify_model: str
     report_model: str | None
     is_active: bool
+    concurrency: int
 
     model_config = {"from_attributes": True}
 

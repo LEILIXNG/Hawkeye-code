@@ -313,3 +313,69 @@ class TestScopeFilter:
         deduped = scan_module.dedup(drop_out_of_scope(candidates, self.OUT_OF_SCOPE))
         assert len(deduped) == 1
         assert deduped[0]["rule_ids"] == ["sqli"]
+
+
+class TestVerifyAll:
+    """scanner.pipeline.verify_all -- the concurrency knob. No LLM here:
+    call_llm is stubbed, so what is asserted is ordering and fan-out."""
+
+    def _setup(self, monkeypatch, calls, delay=0.0):
+        import time
+        from scanner import pipeline
+
+        monkeypatch.setattr(pipeline, "build_context", lambda ws, c, idx: "ctx")
+        monkeypatch.setattr(pipeline, "build_prompt", lambda tpl, c, ctx: c["sink_file"])
+
+        def fake_call_llm(provider, model, prompt):
+            calls.append(prompt)
+            if delay:
+                time.sleep(delay)
+            return {"reachable": "yes", "reasoning": prompt}
+
+        monkeypatch.setattr(pipeline, "call_llm", fake_call_llm)
+
+    def test_results_keep_candidate_order_when_run_concurrently(self, monkeypatch):
+        from scanner.pipeline import verify_all
+
+        calls = []
+        self._setup(monkeypatch, calls, delay=0.02)
+        candidates = [{"sink_file": f"F{n}.java"} for n in range(12)]
+
+        verified = verify_all(candidates, None, None, "tpl", None, "m", concurrency=4)
+
+        # Threads finish out of order; the returned list must not.
+        assert [v["sink_file"] for v in verified] == [c["sink_file"] for c in candidates]
+        assert len(calls) == 12
+
+    def test_every_candidate_is_verified_exactly_once(self, monkeypatch):
+        from scanner.pipeline import verify_all
+
+        calls = []
+        self._setup(monkeypatch, calls)
+        candidates = [{"sink_file": f"F{n}.java"} for n in range(5)]
+
+        verify_all(candidates, None, None, "tpl", None, "m", concurrency=3)
+
+        assert sorted(calls) == sorted(c["sink_file"] for c in candidates)
+
+    def test_a_failure_still_ends_the_stage(self, monkeypatch):
+        # One hard failure (a 429) must surface, not be swallowed into a
+        # report with silent holes in it.
+        import pytest
+
+        from scanner import pipeline
+        from scanner.pipeline import verify_all
+
+        monkeypatch.setattr(pipeline, "build_context", lambda ws, c, idx: "ctx")
+        monkeypatch.setattr(pipeline, "build_prompt", lambda tpl, c, ctx: c["sink_file"])
+
+        def boom(provider, model, prompt):
+            if prompt == "F3.java":
+                raise RuntimeError("429 rate limited")
+            return {"reachable": "yes"}
+
+        monkeypatch.setattr(pipeline, "call_llm", boom)
+        candidates = [{"sink_file": f"F{n}.java"} for n in range(6)]
+
+        with pytest.raises(RuntimeError, match="429"):
+            verify_all(candidates, None, None, "tpl", None, "m", concurrency=3)

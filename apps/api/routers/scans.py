@@ -19,7 +19,8 @@ router = APIRouter(tags=["scans"])
 
 # Everything that isn't a terminal state. A scan sitting in one of these has
 # a background task still writing to its workspace and report directory.
-RUNNING_STATUSES = frozenset({"queued", "ingesting", "scanning", "verifying", "translating", "reporting"})
+RUNNING_STATUSES = frozenset({"queued", "ingesting", "scanning", "indexing", "verifying",
+                              "translating", "reporting"})
 
 
 def _active_llm_config(db: Session) -> models.LLMConfig | None:
@@ -88,6 +89,20 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
             provider=provider,
             model=model,
             on_status=on_status,
+            # Off because it is a second full LLM pass over every finding,
+            # and measured on this machine it costs about as much wall clock
+            # as the verify stage it follows (median 8.4s vs 7.9s per call),
+            # with a language-check retry that can make one finding two
+            # calls. On a rate-limited endpoint that is also twice the
+            # chances of the 429 that ends a whole scan. Untranslated, the
+            # report's zh/en toggle shows the model's original wording on
+            # both sides -- which is what it did before the stage existed.
+            # scripts/04_translate.py still translates a finished
+            # data/verified.json out of band.
+            translate=False,
+            # From the LLM config the user picked, so a throttled endpoint
+            # can be pinned at 1 while a tolerant one runs several at once.
+            concurrency=llm_config.concurrency if llm_config else 1,
         )
 
         _persist_candidates_and_findings(db, scan_id, report_dir, model)

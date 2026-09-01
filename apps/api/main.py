@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
     ensure_data_dir()
     Base.metadata.create_all(bind=engine)
     _ensure_scans_llm_config_id_column()
+    _ensure_llm_configs_concurrency_column()
     _seed_llm_config_from_env()
     yield
 
@@ -50,6 +51,20 @@ app = FastAPI(title="sast-local API", lifespan=lifespan)
 app.include_router(uploads.router)
 app.include_router(scans.router)
 app.include_router(settings.router)
+
+
+def _ensure_llm_configs_concurrency_column() -> None:
+    """Same create_all() gap as the column above: an existing db.sqlite3 has
+    an llm_configs table without `concurrency`, and every settings query
+    would fail on it. Defaults to 1, which is what the pipeline did before
+    the setting existed."""
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(llm_configs)"))}
+        if "concurrency" not in columns:
+            conn.execute(text("ALTER TABLE llm_configs ADD COLUMN concurrency INTEGER DEFAULT 1"))
+            conn.commit()
 
 
 def _seed_llm_config_from_env() -> None:

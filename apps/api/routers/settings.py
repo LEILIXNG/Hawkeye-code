@@ -26,6 +26,7 @@ def _to_out(row: models.LLMConfig) -> schemas.LLMConfigOut:
         verify_model=row.verify_model,
         report_model=row.report_model,
         is_active=row.is_active,
+        concurrency=row.concurrency,
     )
 
 
@@ -54,6 +55,7 @@ def save_config(payload: schemas.LLMConfigIn, db: Session = Depends(get_db)):
         verify_model=payload.verify_model,
         report_model=payload.report_model,
         is_active=True,
+        concurrency=payload.concurrency,
     )
     db.add(row)
     db.commit()

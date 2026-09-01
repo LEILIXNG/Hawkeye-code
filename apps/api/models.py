@@ -35,7 +35,7 @@ class Scan(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"))
     status: Mapped[str] = mapped_column(String, default="queued")
-    # queued|ingesting|scanning|verifying|translating|reporting|done|failed
+    # queued|ingesting|scanning|indexing|verifying|translating|reporting|done|failed
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -110,4 +110,8 @@ class LLMConfig(Base):
     verify_model: Mapped[str] = mapped_column(String)
     report_model: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # How many verify calls this provider may have in flight at once. Lives
+    # on the config rather than on the scan because it is a property of the
+    # endpoint's tolerance, not of the code being scanned.
+    concurrency: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

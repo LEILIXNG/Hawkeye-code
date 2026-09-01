@@ -5,7 +5,9 @@ worker, one scan at a time) per docs/framework.md's "单用户同一时刻通常
 跑一个扫描" simplification — no distributed queue.
 """
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock
 from typing import Callable
 
 from scanner.common import (
@@ -43,6 +45,50 @@ class PipelineError(Exception):
     pass
 
 
+def verify_all(candidates, workspace_dir, index, template, provider, model, concurrency: int = 1):
+    """The verify stage, `concurrency` calls in flight at a time.
+
+    Threads rather than asyncio: the work is one blocking HTTP call per
+    candidate through a provider SDK this project does not control, and the
+    context building around it is file IO. Nothing here is CPU-bound, so the
+    GIL is not what limits it.
+
+    executor.map keeps the results in candidate order -- the report sorts by
+    verdict later, but a scan that shuffled its findings run to run would
+    make two reports of the same code impossible to diff. It also re-raises
+    the first exception, which keeps the existing contract that one hard
+    failure (a 429, say) ends the scan rather than yielding a report with
+    silent holes in it.
+    """
+    def verify_one(candidate):
+        code_context = build_context(workspace_dir, candidate, index)
+        prompt = build_prompt(template, candidate, code_context)
+        return {**candidate, "finding": call_llm(provider, model, prompt)}
+
+    total = len(candidates)
+    if concurrency <= 1:
+        verified = []
+        for i, candidate in enumerate(candidates, 1):
+            print(f"[pipeline] verifying {i}/{total}", file=sys.stderr)
+            verified.append(verify_one(candidate))
+        return verified
+
+    print(f"[pipeline] verifying {total} candidates, {concurrency} at a time", file=sys.stderr)
+    done = 0
+    lock = Lock()
+
+    def verify_and_count(candidate):
+        result = verify_one(candidate)
+        nonlocal done
+        with lock:
+            done += 1
+            print(f"[pipeline] verifying {done}/{total}", file=sys.stderr)
+        return result
+
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        return list(pool.map(verify_and_count, candidates))
+
+
 def run_pipeline(
     zip_path: Path,
     workspace_dir: Path,
@@ -52,6 +98,7 @@ def run_pipeline(
     model: str,
     on_status: Callable[[str], None] = lambda status: None,
     translate: bool = True,
+    concurrency: int = 1,
 ) -> dict:
     """Runs the full A/B/C/E/G flow for one scan. Returns the same dict
     shape as scanner.render.render(). Raises PipelineError on failure;
@@ -72,19 +119,23 @@ def run_pipeline(
     except Exception as e:
         raise PipelineError(f"scan failed: {e}") from e
 
+    # Its own stage rather than the first thing the verify stage does: this
+    # is a tree-sitter parse of every .java file in the workspace, and while
+    # it runs no LLM call has been made yet. Folded into "verifying" it read
+    # as a scan stuck on its first finding -- 2s on a 162-file project, but
+    # it scales with the repo, not with the number of findings.
+    on_status("indexing")
+    try:
+        # Built once per scan: doing it per candidate would repeat the whole
+        # parse for every finding.
+        index = index_workspace(workspace_dir)
+    except Exception as e:
+        raise PipelineError(f"call graph failed: {e}") from e
+
     on_status("verifying")
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
-    # Built once per scan: indexing is a full parse of every .java file, and
-    # doing it per candidate would repeat that work for every finding.
-    index = index_workspace(workspace_dir)
-    verified = []
     try:
-        for i, candidate in enumerate(candidates, 1):
-            print(f"[pipeline] verifying {i}/{len(candidates)}", file=sys.stderr)
-            code_context = build_context(workspace_dir, candidate, index)
-            prompt = build_prompt(template, candidate, code_context)
-            finding = call_llm(provider, model, prompt)
-            verified.append({**candidate, "finding": finding})
+        verified = verify_all(candidates, workspace_dir, index, template, provider, model, concurrency)
     except Exception as e:
         raise PipelineError(f"verify failed: {e}") from e
 

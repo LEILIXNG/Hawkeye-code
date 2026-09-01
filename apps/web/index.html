@@ -113,6 +113,7 @@
   button.danger-btn:hover { border-color: var(--danger); background: var(--danger-soft); }
   button.small { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
   #lang-toggle { flex-shrink: 0; border-radius: 999px; }
+  .field-hint { font-size: 0.75rem; color: var(--text-faint); margin: 0.3rem 0 0; line-height: 1.4; }
   .row { display: flex; gap: 0.6rem; align-items: center; margin-top: 1rem; }
   .dropzone {
     border: 1.5px dashed var(--border);
@@ -297,6 +298,9 @@
       <input id="api-key" type="password" placeholder="sk-...">
       <label data-i18n="settings.verifyModel"></label>
       <input id="verify-model" placeholder="gpt-4o-mini / glm-4-flash / deepseek-chat">
+      <label data-i18n="settings.concurrency"></label>
+      <input id="concurrency" type="number" min="1" max="8" step="1" value="1">
+      <p class="field-hint" data-i18n="settings.concurrencyHint"></p>
       <div class="row">
         <button id="test-btn" data-i18n="settings.testBtn"></button>
         <button id="save-btn" class="primary" data-i18n="settings.saveBtn"></button>
@@ -354,6 +358,8 @@ const I18N = {
       savedConfigs: "已保存的配置",
       thName: "名称", thModel: "模型", thStatus: "状态",
       empty: "还没有保存过配置", active: "使用中", enable: "启用", delete: "删除",
+      concurrency: "并发数",
+      concurrencyHint: "同时发出的复核请求数(1-8)。调大更快，但撞上限流的机会也更多——供应商返回 429 会让整轮扫描失败。不确定就保持 1。",
       officialOpenAI: "(官方 OpenAI)",
     },
     msg: {
@@ -366,9 +372,9 @@ const I18N = {
       uploading: "上传中...", uploadFail: (e) => `✕ 失败: ${e}`,
       selectedFile: (name) => `已选择: ${name}`,
     },
-    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败" },
+    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", indexing: "构建调用图中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败" },
     progress: {
-      steps: { ingesting: "解压", scanning: "扫描", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
+      steps: { ingesting: "解压", scanning: "扫描", indexing: "调用图", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
       elapsed: (clock) => `已用 ${clock}`,
     },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
@@ -409,6 +415,8 @@ const I18N = {
       savedConfigs: "Saved configs",
       thName: "Name", thModel: "Model", thStatus: "Status",
       empty: "No saved configs yet", active: "Active", enable: "Enable", delete: "Delete",
+      concurrency: "Concurrency",
+      concurrencyHint: "Verify requests in flight at once (1-8). Higher is faster but meets rate limits sooner -- a 429 from the provider fails the whole scan. Leave it at 1 if unsure.",
       officialOpenAI: "(Official OpenAI)",
     },
     msg: {
@@ -421,9 +429,9 @@ const I18N = {
       uploading: "Uploading...", uploadFail: (e) => `✕ Failed: ${e}`,
       selectedFile: (name) => `Selected: ${name}`,
     },
-    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed" },
+    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", indexing: "Building call graph", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed" },
     progress: {
-      steps: { ingesting: "Extract", scanning: "Scan", verifying: "Verify", translating: "Translate", reporting: "Report" },
+      steps: { ingesting: "Extract", scanning: "Scan", indexing: "Call graph", verifying: "Verify", translating: "Translate", reporting: "Report" },
       elapsed: (clock) => `${clock} elapsed`,
     },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
@@ -529,6 +537,7 @@ $("save-btn").addEventListener("click", async () => {
         base_url: $("base-url").value || null,
         api_key: $("api-key").value,
         verify_model: $("verify-model").value,
+        concurrency: Number($("concurrency").value) || 1,
       }),
     });
     setMsg(msg, t("msg.savedActivated"), "ok");
@@ -544,6 +553,7 @@ async function loadActiveConfig() {
     if (!cfg) return;
     $("base-url").value = cfg.base_url || "";
     $("verify-model").value = cfg.verify_model || "";
+    $("concurrency").value = cfg.concurrency || 1;
   } catch (e) { /* ignore */ }
 }
 
@@ -709,8 +719,11 @@ function statusLabel(status) {
 
 // The pipeline's on_status calls, in the order scanner/pipeline.py emits
 // them. "queued" sits before all of these and "done"/"failed" after, so
-// neither belongs in the list.
-const PIPELINE_STEPS = ["ingesting", "scanning", "verifying", "translating", "reporting"];
+// neither belongs in the list. "translating" is absent because the web
+// pipeline passes translate=False -- a step that is always skipped is a
+// slot the reader watches stay grey for the whole scan. The status label
+// is kept in the i18n table for the CLI path, which still translates.
+const PIPELINE_STEPS = ["ingesting", "scanning", "indexing", "verifying", "reporting"];
 let lastActiveStep = -1;
 let elapsedTimer = null;
 
