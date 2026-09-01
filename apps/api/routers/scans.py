@@ -1,16 +1,19 @@
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from apps.api import models, schemas
 from apps.api.database import SessionLocal, get_db
 from llm_gateway.config import provider_and_model_from_config
-from scanner.common import REPORTS_DIR, UPLOADS_DIR, WORKSPACES_DIR
+from scanner.common import REPORTS_DIR, UPLOADS_DIR, WORKSPACES_DIR, load_json
 from scanner.pipeline import PipelineError, run_pipeline
+from scanner.render_md import render_markdown
+from scanner.report_i18n import DEFAULT_LANG
 
 router = APIRouter(tags=["scans"])
 
@@ -227,6 +230,52 @@ def delete_scan(scan_id: str, db: Session = Depends(get_db)):
         (UPLOADS_DIR / f"{project.id}.zip").unlink(missing_ok=True)
         db.delete(project)
         db.commit()
+
+
+EXPORT_FORMATS = {"md", "html"}
+
+
+def _safe_stem(project_name: str, scan_id: str) -> str:
+    """A download filename built from the project name. Characters Windows
+    and POSIX disagree about are dropped rather than escaped, and the scan's
+    short id keeps two exports of the same project apart."""
+    cleaned = "".join(c for c in project_name if c.isalnum() or c in "-_. ").strip().rstrip(".")
+    return f"{cleaned or 'report'}-{scan_id[:8]}"
+
+
+def _attachment(filename: str) -> dict[str, str]:
+    """Content-Disposition carrying a non-ASCII filename.
+
+    A project name can be Chinese, which is not representable in the plain
+    `filename=` parameter -- browsers that only read that one would save a
+    mangled name, so RFC 5987's `filename*` is sent alongside an ASCII
+    fallback rather than instead of it.
+    """
+    ascii_name = filename.encode("ascii", "ignore").decode() or "report"
+    return {"Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"}
+
+
+@router.get("/scans/{scan_id}/export")
+def export_report(scan_id: str, format: str = "md", lang: str = DEFAULT_LANG, db: Session = Depends(get_db)):
+    """Download a finished scan's report. `html` hands back the rendered page
+    as a file; `md` is generated here from the stored report.json, so it also
+    works for scans that finished before this endpoint existed."""
+    if format not in EXPORT_FORMATS:
+        raise HTTPException(400, f"unsupported export format '{format}', expected one of {sorted(EXPORT_FORMATS)}")
+
+    scan = db.get(models.Scan, scan_id)
+    if scan is None or scan.report is None:
+        raise HTTPException(404, "report not found")
+
+    stem = _safe_stem(scan.project.name if scan.project else "report", scan_id)
+    if format == "html":
+        return FileResponse(scan.report.html_path, media_type="text/html",
+                            headers=_attachment(f"{stem}.html"))
+
+    data = load_json(Path(scan.report.json_path))
+    markdown = render_markdown(data.get("findings", []), data.get("project", stem), lang)
+    return Response(markdown, media_type="text/markdown; charset=utf-8",
+                    headers=_attachment(f"{stem}.md"))
 
 
 @router.get("/projects", response_model=list[schemas.ProjectOut])

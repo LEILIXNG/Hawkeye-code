@@ -179,6 +179,8 @@
   .pill-progress { background: var(--warning-soft); color: var(--warning); }
   a.report-link { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.9rem; color: var(--primary); text-decoration: none; font-size: 0.85rem; font-weight: 600; }
   a.report-link:hover { text-decoration: underline; }
+  .report-actions { display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap; }
+  .detail-actions { display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap; }
   a { color: var(--primary); }
   .config-row-name { font-weight: 600; }
   .config-row-url { color: var(--text-muted); font-family: ui-monospace, monospace; font-size: 0.8rem; }
@@ -240,7 +242,11 @@
     </div>
     <div id="scan-progress" style="display:none"></div>
     <p id="status-msg"></p>
-    <a id="report-link" class="report-link" style="display:none" target="_blank" data-i18n="report.link"></a>
+    <div id="report-actions" class="report-actions" style="display:none">
+      <a id="report-link" class="report-link" target="_blank" data-i18n="report.link"></a>
+      <a id="export-md" class="report-link" download data-i18n="export.md"></a>
+      <a id="export-html" class="report-link" download data-i18n="export.html"></a>
+    </div>
   </section>
 
   <section>
@@ -259,7 +265,11 @@
     <div id="scan-detail">
       <div class="detail-header">
         <h3 id="detail-title"></h3>
-        <a id="detail-open-link" target="_blank" data-i18n="detail.openLink"></a>
+        <span class="detail-actions" id="detail-actions-wrap">
+          <a id="detail-export-md" download data-i18n="export.md"></a>
+          <a id="detail-export-html" download data-i18n="export.html"></a>
+          <a id="detail-open-link" target="_blank" data-i18n="detail.openLink"></a>
+        </span>
       </div>
       <div id="detail-body"></div>
     </div>
@@ -317,6 +327,7 @@ const I18N = {
     dropzone: { prefix: "拖拽 zip 文件到这里，或 ", link: "点击选择" },
     upload: { button: "上传并开始扫描", modelLabel: "扫描用的模型", useActive: "使用当前生效配置", noConfigs: "还没有保存 LLM 配置，先去下面第 3 步添加" },
     report: { link: "查看报告 →" },
+    export: { md: "导出 Markdown", html: "导出 HTML" },
     section2: { heading: "历史扫描" },
     history: {
       thProject: "项目", thStatus: "状态", thTime: "时间", view: "查看 →",
@@ -371,6 +382,7 @@ const I18N = {
     dropzone: { prefix: "Drag a zip file here, or ", link: "click to browse" },
     upload: { button: "Upload & start scan", modelLabel: "Model for this scan", useActive: "Use the currently active config", noConfigs: "No saved LLM configs yet — add one in step 3 below" },
     report: { link: "View report →" },
+    export: { md: "Export Markdown", html: "Export HTML" },
     section2: { heading: "Scan history" },
     history: {
       thProject: "Project", thStatus: "Status", thTime: "Time", view: "View →",
@@ -439,6 +451,12 @@ function applyStaticI18n() {
     if (typeof val === "string") el.textContent = val;
   });
   $("lang-toggle").textContent = t("langToggle");
+  // The Markdown export is rendered server-side in one language, so its
+  // href carries the current one. Written when a scan is selected, but the
+  // reader can switch language after that and expects the export to follow.
+  document.querySelectorAll('a[href*="format=md"]').forEach((a) => {
+    a.setAttribute("href", a.getAttribute("href").replace(/lang=[a-z-]+/, `lang=${lang}`));
+  });
 }
 
 async function api(path, options) {
@@ -652,7 +670,7 @@ $("upload-btn").addEventListener("click", async () => {
   const statusMsg = $("status-msg");
   const reportLink = $("report-link");
   const uploadBtn = $("upload-btn");
-  reportLink.style.display = "none";
+  $("report-actions").style.display = "none";
   $("scan-progress").style.display = "none";
   const file = $("file-input").files[0];
   if (!file) { setMsg(statusMsg, t("msg.selectZipFirst"), "err"); return; }
@@ -757,7 +775,8 @@ async function pollScan(scanId, statusMsg, reportLink) {
       stopElapsed();
       setMsg(statusMsg, `✓ ${label}`, "ok");
       reportLink.href = `/scans/${scanId}/report.html`;
-      reportLink.style.display = "inline-flex";
+      setExportLinks(scanId, "export-md", "export-html");
+      $("report-actions").style.display = "flex";
       return;
     }
     if (scan.status === "failed") {
@@ -768,6 +787,21 @@ async function pollScan(scanId, statusMsg, reportLink) {
     setMsg(statusMsg, label, "");
     await new Promise((r) => setTimeout(r, 2000));
   }
+}
+
+function localTime(iso) {
+  if (!iso) return "";
+  // The API serialises started_at from a naive UTC datetime, so it arrives
+  // with no offset -- and new Date() reads an offset-less string as *local*
+  // time, which silently shifts every timestamp by the viewer's own zone
+  // (8 hours here). Mark it as UTC unless it already says otherwise.
+  const stamped = /(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : iso + "Z";
+  const parsed = new Date(stamped);
+  if (isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
 }
 
 async function loadHistory() {
@@ -789,7 +823,7 @@ async function loadHistory() {
     tr.dataset.scanId = scan.id;
     const pillClass = scan.status === "done" ? "pill-done" : scan.status === "failed" ? "pill-failed" : "pill-progress";
     const statusPill = `<span class="pill ${pillClass}">${statusLabel(scan.status)}</span>`;
-    tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td>${esc(scan.started_at ?? "")}</td><td>${t("history.view")}</td>`
+    tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td title="${esc(scan.started_at ?? "")}">${esc(localTime(scan.started_at))}</td><td>${t("history.view")}</td>`
       + `<td><button class="small danger-btn" data-delete-scan="${scan.id}">${t("history.delete")}</button></td>`;
     tr.addEventListener("click", () => selectScan(tr, project, scan));
     tr.querySelector("[data-delete-scan]").addEventListener("click", (ev) => {
@@ -866,6 +900,11 @@ function findingCardHtml(item) {
     </details>`;
 }
 
+function setExportLinks(scanId, mdId, htmlId) {
+  $(mdId).href = `/scans/${scanId}/export?format=md&lang=${lang}`;
+  $(htmlId).href = `/scans/${scanId}/export?format=html`;
+}
+
 async function selectScan(tr, project, scan) {
   document.querySelectorAll("#history-table tr.selected").forEach((el) => el.classList.remove("selected"));
   tr.classList.add("selected");
@@ -878,18 +917,19 @@ async function selectScan(tr, project, scan) {
   title.textContent = `${project.name} — ${statusLabel(scan.status)}`;
 
   if (scan.status === "failed") {
-    openLink.style.display = "none";
+    $("detail-actions-wrap").style.display = "none";
     body.innerHTML = `<p class="err" style="font-size:0.85rem">✕ ${esc(scan.error_message || t("detail.failedNoInfo"))}</p>`;
     return;
   }
   if (scan.status !== "done") {
-    openLink.style.display = "none";
+    $("detail-actions-wrap").style.display = "none";
     body.innerHTML = `<p style="font-size:0.85rem;color:var(--text-muted)"><span class="spinner"></span> ${t("detail.inProgress")(statusLabel(scan.status))}</p>`;
     return;
   }
 
-  openLink.style.display = "inline";
+  $("detail-actions-wrap").style.display = "flex";
   openLink.href = `/scans/${scan.id}/report.html`;
+  setExportLinks(scan.id, "detail-export-md", "detail-export-html");
   body.innerHTML = `<p style="font-size:0.85rem;color:var(--text-muted)"><span class="spinner"></span> ${t("detail.loading")}</p>`;
   try {
     const report = await api(`/scans/${scan.id}/report.json`);

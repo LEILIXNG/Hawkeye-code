@@ -244,6 +244,89 @@ class TestDeleteScan:
         assert len(client.get(f"/projects/{project_id}/scans").json()) == 1
 
 
+class TestExportReport:
+    """GET /scans/{id}/export. The Markdown side is rendered from the stored
+    report.json, so these build a report row pointing at a json file on disk
+    rather than running a scan."""
+
+    def _scan_with_report(self, client, tmp_path):
+        import json
+
+        from apps.api import database as db_module, models
+
+        upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
+        project_id = upload.json()["id"]
+
+        report_dir = tmp_path / "reports" / "x"
+        report_dir.mkdir(parents=True)
+        json_path = report_dir / "report.json"
+        html_path = report_dir / "report.html"
+        json_path.write_text(json.dumps({
+            "project": "demo",
+            "summary": {},
+            "findings": [{
+                "rule_id": "r", "messages": ["m"], "cwe": ["CWE-89: x ('SQL Injection')"],
+                "source_file": "A.java", "source_line": 1, "sink_file": "A.java", "sink_line": 2,
+                "severity": "ERROR", "finding": {"reachable": "yes", "reasoning": "why"},
+            }],
+        }), encoding="utf-8")
+        html_path.write_text("<html>report</html>", encoding="utf-8")
+
+        db = db_module.SessionLocal()
+        scan = models.Scan(project_id=project_id, status="done")
+        db.add(scan)
+        db.flush()
+        db.add(models.Report(scan_id=scan.id, html_path=str(html_path), json_path=str(json_path), summary={}))
+        db.commit()
+        scan_id = scan.id
+        db.close()
+        return scan_id
+
+    def test_markdown_export_renders_from_the_stored_json(self, client, tmp_path):
+        scan_id = self._scan_with_report(client, tmp_path)
+
+        resp = client.get(f"/scans/{scan_id}/export?format=md")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/markdown")
+        assert "attachment" in resp.headers["content-disposition"]
+        body = resp.text
+        assert body.startswith("# 扫描报告 — demo")
+        assert "### 1. SQL Injection — `A.java:2`" in body
+
+    def test_markdown_export_honours_the_language(self, client, tmp_path):
+        scan_id = self._scan_with_report(client, tmp_path)
+
+        assert client.get(f"/scans/{scan_id}/export?format=md&lang=en").text.startswith("# Scan report")
+
+    def test_html_export_hands_back_the_rendered_page_as_a_download(self, client, tmp_path):
+        scan_id = self._scan_with_report(client, tmp_path)
+
+        resp = client.get(f"/scans/{scan_id}/export?format=html")
+
+        assert resp.status_code == 200
+        assert resp.text == "<html>report</html>"
+        assert "attachment" in resp.headers["content-disposition"]
+
+    def test_a_non_ascii_project_name_survives_in_the_filename(self, client, tmp_path):
+        from apps.api.routers.scans import _attachment
+
+        header = _attachment("扫描报告.md")["Content-Disposition"]
+
+        # An ASCII-only browser gets a usable fallback, everyone else gets
+        # the real name out of filename*.
+        assert "filename=\"" in header
+        assert "filename*=UTF-8''" in header
+
+    def test_unknown_format_is_400(self, client, tmp_path):
+        scan_id = self._scan_with_report(client, tmp_path)
+
+        assert client.get(f"/scans/{scan_id}/export?format=pdf").status_code == 400
+
+    def test_export_of_a_scan_without_a_report_is_404(self, client):
+        assert client.get("/scans/nope/export?format=md").status_code == 404
+
+
 class TestSettings:
     def test_no_active_config_returns_null(self, client):
         assert client.get("/settings/llm").json() is None
