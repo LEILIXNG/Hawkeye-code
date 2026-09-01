@@ -35,6 +35,17 @@ def client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(uploads_router, "UPLOADS_DIR", tmp_path / "uploads")
 
+    # scans.py did `from scanner.common import ...`, binding these at import
+    # time, so patching scanner.common above does not reach them. Without
+    # this a test that renders a report writes it into the developer's real
+    # data/reports/ -- which is exactly what happened, one leaked directory
+    # per suite run, until 88 of them had piled up.
+    from apps.api.routers import scans as scans_router
+
+    monkeypatch.setattr(scans_router, "UPLOADS_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(scans_router, "WORKSPACES_DIR", tmp_path / "workspaces")
+    monkeypatch.setattr(scans_router, "REPORTS_DIR", tmp_path / "reports")
+
     def override_get_db():
         db = TestSessionLocal()
         try:
@@ -162,15 +173,11 @@ class TestDeleteScan:
     assertions never look at.
     """
 
-    def _setup(self, client, monkeypatch, tmp_path, status="done"):
+    def _setup(self, client, tmp_path, status="done"):
+        # The client fixture already points scans.py's UPLOADS_DIR /
+        # WORKSPACES_DIR / REPORTS_DIR at tmp_path, so the directories built
+        # below are the ones the endpoint will delete.
         from apps.api import database as db_module, models
-        from apps.api.routers import scans as scans_router
-
-        # scans.py bound these at import time, so the client fixture's patch
-        # of scanner.common does not reach them -- patch its own copies or
-        # the test deletes directories under the real data/.
-        for name in ("WORKSPACES_DIR", "REPORTS_DIR", "UPLOADS_DIR"):
-            monkeypatch.setattr(scans_router, name, tmp_path / name.lower().replace("_dir", ""))
 
         upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
         project_id = upload.json()["id"]
@@ -193,16 +200,16 @@ class TestDeleteScan:
     def test_delete_missing_scan_is_404(self, client):
         assert client.delete("/scans/nope").status_code == 404
 
-    def test_delete_removes_the_scan_and_its_directories(self, client, monkeypatch, tmp_path):
-        _, scan_id, dirs = self._setup(client, monkeypatch, tmp_path)
+    def test_delete_removes_the_scan_and_its_directories(self, client, tmp_path):
+        _, scan_id, dirs = self._setup(client, tmp_path)
 
         assert client.delete(f"/scans/{scan_id}").status_code == 204
         assert client.get(f"/scans/{scan_id}").status_code == 404
         for d in dirs:
             assert not d.exists()
 
-    def test_delete_is_refused_while_the_scan_is_still_running(self, client, monkeypatch, tmp_path):
-        _, scan_id, dirs = self._setup(client, monkeypatch, tmp_path, status="scanning")
+    def test_delete_is_refused_while_the_scan_is_still_running(self, client, tmp_path):
+        _, scan_id, dirs = self._setup(client, tmp_path, status="scanning")
 
         resp = client.delete(f"/scans/{scan_id}")
         assert resp.status_code == 409
@@ -211,8 +218,8 @@ class TestDeleteScan:
         for d in dirs:
             assert d.exists()
 
-    def test_deleting_the_last_scan_drops_the_project_and_its_zip(self, client, monkeypatch, tmp_path):
-        project_id, scan_id, _ = self._setup(client, monkeypatch, tmp_path)
+    def test_deleting_the_last_scan_drops_the_project_and_its_zip(self, client, tmp_path):
+        project_id, scan_id, _ = self._setup(client, tmp_path)
         zip_path = tmp_path / "uploads" / f"{project_id}.zip"
         assert zip_path.exists()
 
@@ -221,10 +228,10 @@ class TestDeleteScan:
         assert client.get("/projects").json() == []
         assert not zip_path.exists()
 
-    def test_a_project_survives_while_it_still_has_another_scan(self, client, monkeypatch, tmp_path):
+    def test_a_project_survives_while_it_still_has_another_scan(self, client, tmp_path):
         from apps.api import database as db_module, models
 
-        project_id, scan_id, _ = self._setup(client, monkeypatch, tmp_path)
+        project_id, scan_id, _ = self._setup(client, tmp_path)
         db = db_module.SessionLocal()
         db.add(models.Scan(project_id=project_id, status="done"))
         db.commit()
