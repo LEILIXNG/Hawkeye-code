@@ -78,6 +78,38 @@ def vuln_type_label(item: dict) -> str:
     return match.group(1) if match else text
 
 
+# Highest first -- the facet lists these in fixed order rather than by
+# count, because a severity scale reads wrong shuffled.
+RISK_LEVELS = ("critical", "high", "medium", "low")
+
+
+def risk_level(item: dict) -> str:
+    """Four-level risk rating: Semgrep's severity graded by whether the
+    verifier actually reached the sink.
+
+    Semgrep alone only emits ERROR/WARNING/INFO, so a fourth level has to
+    come from somewhere -- and reachability is exactly what this tool adds
+    on top of the engine.
+
+    The three verdicts are not two things. `no` is the verifier stating the
+    sink is unreachable or already sanitized: that is evidence of safety,
+    and it bottoms out the scale no matter how loud the rule was. These are
+    the same findings the summary counts as "safe", so grading them as
+    anything else would have the report contradicting its own headline.
+    `uncertain` and `verifier_failed` are the absence of a verdict, not a
+    negative one -- unproven, so one step down from confirmed, never to the
+    floor.
+    """
+    severity = (item.get("severity") or "").upper()
+    verdict = verdict_of(item)
+    if verdict == "no":
+        return "low"
+    confirmed = {"ERROR": "critical", "WARNING": "high"}.get(severity, "medium")
+    if verdict == "yes":
+        return confirmed
+    return {"critical": "high", "high": "medium", "medium": "low"}[confirmed]
+
+
 def _sink_basename(item: dict) -> str:
     return item["sink_file"].replace("\\", "/").rsplit("/", 1)[-1]
 
@@ -112,14 +144,15 @@ def _card_html(item: dict) -> str:
     confidence = finding.get("confidence")
     vuln_type = vuln_type_label(item)
     severity = item.get("severity") or "UNKNOWN"
+    risk = risk_level(item)
 
     return f"""
     <details class="card" data-bucket="{filter_bucket}" data-type="{html.escape(vuln_type)}"
-              data-file="{html.escape(item["sink_file"])}" data-severity="{html.escape(severity)}">
+              data-file="{html.escape(item["sink_file"])}" data-severity="{risk}">
       <summary title="{html.escape(item["sink_file"])}:{item["sink_line"]}">
         <span class="badge {badge_class}" data-i18n="reachable.{badge_key}"></span>
         <span class="vuln-type">{html.escape(vuln_type)}</span>
-        <span class="severity sev-{html.escape(severity)}">{html.escape(severity)}</span>
+        <span class="severity risk-{risk}" data-i18n="risk.{risk}" title="Semgrep: {html.escape(severity)}"></span>
         <span class="location"><span class="loc-path">{html.escape(short_location(item["sink_file"]))}</span><span class="loc-line">:{item["sink_line"]}</span></span>
         <span class="rule" title="{html.escape(rule_ids)}">{html.escape(rule_ids)}</span>
       </summary>
@@ -188,8 +221,14 @@ _FILTERS = [
 # How many facet values a paginated column shows before "show more". Only
 # the file column uses it -- a real project has one entry per file with a
 # finding, which is far more than the handful of vulnerability types or the
-# three severities.
-FACET_PAGE_SIZE = 8
+# three severities. Sized so the closed list never needs a scrollbar: a
+# scrolling facet list is the thing that made this column unreadable.
+FACET_PAGE_SIZE = 5
+
+# After the one click that reveals the rest, the list becomes a scroll area
+# this many rows tall. One click rather than a page at a time: paging
+# through 18 files four clicks at a time is worse than scrolling them.
+FACET_EXPANDED_ROWS = 8
 
 
 def _facet_list_html(facet_name: str, counts: list[tuple[str, int]], total: int, label_fn=html.escape,
@@ -244,14 +283,18 @@ def render_html(verified: list[dict], project_name: str) -> str:
 
     type_counts = _facet_counts(verified, vuln_type_label)
     file_counts = _facet_counts(verified, lambda i: i["sink_file"])
-    severity_counts = _facet_counts(verified, lambda i: i.get("severity") or "UNKNOWN")
+    # Fixed scale order, and levels nothing landed in are dropped rather
+    # than shown as "低危 (0)".
+    risk_tally = Counter(risk_level(item) for item in verified)
+    severity_counts = [(level, risk_tally[level]) for level in RISK_LEVELS if risk_tally[level]]
 
     facets_html = "".join([
         _facet_col_html("type", type_counts, total),
         _facet_col_html("file", file_counts, total,
                         label_fn=lambda v: html.escape(v.replace(chr(92), "/").rsplit("/", 1)[-1]),
                         page_size=FACET_PAGE_SIZE),
-        _facet_col_html("severity", severity_counts, total),
+        _facet_col_html("severity", severity_counts, total,
+                        label_fn=lambda v: f'<span data-i18n="risk.{v}"></span>'),
     ])
 
     i18n_json = json.dumps(REPORT_I18N, ensure_ascii=False)
@@ -346,10 +389,19 @@ def render_html(verified: list[dict], project_name: str) -> str:
     font-family: inherit; font-size: 0.82rem; text-align: left; cursor: pointer;
     padding: 0.35rem 0.5rem; border-radius: 6px; border: none; background: none; color: var(--text);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    /* .facet-list is a flex column with a max-height, so without this the
+       items compress to fit instead of overflowing into a scroll: 18 files
+       squeezed into 220px rendered as unreadable slivers rather than a
+       scrollable list. */
+    flex-shrink: 0;
   }}
   .facet-item:hover {{ background: var(--bg); }}
   .facet-item.active {{ background: var(--primary-soft); color: var(--primary); font-weight: 600; }}
   .facet-item.hidden {{ display: none; }}
+  /* 1.75rem is one .facet-item plus the list's gap, measured in the browser
+     rather than added up from the padding and line-height -- the arithmetic
+     came out 5px per row too tall and showed 9.5 rows instead of 8. */
+  .facet-list.expanded {{ max-height: calc({FACET_EXPANDED_ROWS} * 1.75rem); }}
   .facet-more {{
     font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
     margin-top: 0.4rem; padding: 0.3rem 0; border: none; background: none;
@@ -380,8 +432,10 @@ def render_html(verified: list[dict], project_name: str) -> str:
     padding: 0.1rem 0.4rem; border-radius: 4px;
     background: var(--neutral-soft); color: var(--neutral);
   }}
-  .sev-ERROR {{ background: var(--danger-soft); color: var(--danger); }}
-  .sev-WARNING {{ background: var(--warning-soft); color: var(--warning); }}
+  .risk-critical {{ background: var(--danger); color: #fff; }}
+  .risk-high {{ background: var(--danger-soft); color: var(--danger); }}
+  .risk-medium {{ background: var(--warning-soft); color: var(--warning); }}
+  .risk-low {{ background: var(--neutral-soft); color: var(--neutral); }}
   /* The line number is split out and pinned so it survives the ellipsis:
      several findings can share one file and differ only by line, and
      truncating "File.java:118" down to "File.java:..." makes those rows
@@ -503,9 +557,10 @@ def render_html(verified: list[dict], project_name: str) -> str:
     applyI18n();
   }});
 
-  // Reveals one more page of facet values per click. A facet hidden this
-  // way is only hidden from the list -- it never affects which cards match,
-  // so revealing more cannot change the current filtering.
+  // Reveals the rest of a facet's values in one click, then turns the list
+  // into a scroll area. A facet hidden this way is only hidden from the
+  // list -- it never affects which cards match, so revealing more cannot
+  // change the current filtering.
   document.querySelectorAll('.facet-more').forEach((btn) => {{
     const facet = btn.dataset.facetMore;
     const stillHidden = () =>
@@ -516,7 +571,11 @@ def render_html(verified: list[dict], project_name: str) -> str:
       btn.style.display = left ? '' : 'none';
     }};
     btn.addEventListener('click', () => {{
-      stillHidden().slice(0, {FACET_PAGE_SIZE}).forEach((el) => el.classList.remove('hidden'));
+      stillHidden().forEach((el) => el.classList.remove('hidden'));
+      // Only now does the list get a scrollbar, and only as tall as
+      // FACET_EXPANDED_ROWS -- the closed list is always short enough to
+      // read without one.
+      btn.parentElement.querySelector('.facet-list').classList.add('expanded');
       refresh();
     }});
     refresh();

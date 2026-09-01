@@ -3,8 +3,8 @@
 not logic worth pinning down in a unit test)."""
 import re
 
-from scanner.render import (FACET_PAGE_SIZE, _card_html, build_summary, render, render_html,
-                            short_location)
+from scanner.render import (FACET_PAGE_SIZE, RISK_LEVELS, _card_html, build_summary, render,
+                            render_html, risk_level, short_location)
 from scanner.report_i18n import REPORT_I18N
 
 
@@ -211,3 +211,41 @@ class TestFacetPagination:
         assert "hidden" not in "".join(self._items(page, "severity"))
         assert 'data-facet-more="severity"' not in page
         assert 'data-facet-more="type"' not in page
+
+
+class TestRiskLevel:
+    def test_a_confirmed_path_carries_the_engine_severity(self):
+        assert risk_level(make_item(severity="ERROR", reachable="yes")) == "critical"
+        assert risk_level(make_item(severity="WARNING", reachable="yes")) == "high"
+        assert risk_level(make_item(severity="INFO", reachable="yes")) == "medium"
+
+    def test_not_reachable_bottoms_out_however_loud_the_rule_was(self):
+        # These are the findings the summary counts as safe -- an ERROR the
+        # verifier proved unreachable must not outrank a reachable WARNING.
+        assert risk_level(make_item(severity="ERROR", reachable="no")) == "low"
+        assert risk_level(make_item(severity="WARNING", reachable="no")) == "low"
+        # RISK_LEVELS runs highest first, so a bigger index is a lower risk.
+        safe_error = RISK_LEVELS.index(risk_level(make_item(severity="ERROR", reachable="no")))
+        live_warning = RISK_LEVELS.index(risk_level(make_item(severity="WARNING", reachable="yes")))
+        assert safe_error > live_warning
+
+    def test_no_verdict_is_one_step_down_not_the_floor(self):
+        # uncertain/verifier_failed are missing evidence, not evidence of safety.
+        assert risk_level(make_item(severity="ERROR", reachable="uncertain")) == "high"
+        assert risk_level(make_item(severity="ERROR", verifier_failed=True)) == "high"
+        assert risk_level(make_item(severity="WARNING", reachable="uncertain")) == "medium"
+        assert risk_level(make_item(severity="INFO", reachable="uncertain")) == "low"
+
+    def test_a_missing_severity_falls_back_to_the_middle(self):
+        item = make_item(reachable="yes")
+        item["severity"] = None
+        assert risk_level(item) == "medium"
+
+    def test_the_facet_keeps_scale_order_and_drops_empty_levels(self):
+        items = [make_item(severity="WARNING", reachable="no")] + [make_item(severity="ERROR", reachable="yes")] * 2
+        page = render_html(items, "demo")
+        values = re.findall(r'data-facet="severity" data-value="([^"]*)"', page)
+
+        # critical before low even though low was rendered first, and no
+        # "high (0)" entry for a level nothing landed in.
+        assert values == ["", "critical", "low"]

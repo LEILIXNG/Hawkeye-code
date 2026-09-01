@@ -19,6 +19,7 @@ REPORT_I18N = {
         "filters": {"all": "全部", "yes": "可达", "no": "不可达", "uncertain": "不确定", "failed": "复核失败"},
         "reachable": {"yes": "可达", "no": "不可达", "uncertain": "不确定", "failed": "复核失败"},
         "facet": {"all": "全部", "type": "按漏洞类型", "file": "按文件", "severity": "按危险程度", "more": "显示更多"},
+        "risk": {"critical": "致命", "high": "高危", "medium": "中危", "low": "低危"},
         "card": {
             "type": "漏洞类型:",
             "rule": "规则说明:",
@@ -40,6 +41,7 @@ REPORT_I18N = {
         "filters": {"all": "All", "yes": "Reachable", "no": "Not reachable", "uncertain": "Uncertain", "failed": "Failed"},
         "reachable": {"yes": "Reachable", "no": "Not reachable", "uncertain": "Uncertain", "failed": "Verify failed"},
         "facet": {"all": "All", "type": "By vulnerability type", "file": "By file", "severity": "By severity", "more": "Show more"},
+        "risk": {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low"},
         "card": {
             "type": "Vulnerability type:",
             "rule": "Rule:",
