@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings: a CRLF #! line makes the kernel
+# report "bad interpreter" on mac and Linux. The .cmd is the mirror case.
+*.sh text eol=lf
+*.cmd text eol=crlf

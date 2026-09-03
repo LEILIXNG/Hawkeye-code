@@ -53,7 +53,8 @@ uvicorn apps.api.main:app --port 8000
 
 打开 `http://localhost:8000`，拖一个项目 zip 进去，等扫描完成，查看报告。报告存在 `data/reports/` 下，可直接双击打开，不需要起服务。
 
-Windows 下双击 `启动前端.cmd`，会自动选空闲端口、启动服务并打开浏览器。
+两个平台各有一个启动器，都会自动挑一个空闲端口(8000-8020)、启动服务并打开浏览器：
+macOS 和 Linux 用 `./start.sh`，Windows 双击 `启动前端.cmd`。
 
 ## 命令行
 
