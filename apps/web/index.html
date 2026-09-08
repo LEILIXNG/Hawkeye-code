@@ -49,17 +49,61 @@
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    max-width: 800px;
+    max-width: 1160px;
     margin: 0 auto;
-    padding: 2.5rem 1.25rem 4rem;
-    background: var(--bg);
+    padding: 1.4rem 1.1rem 3.2rem;
+    background:
+      radial-gradient(circle at top left, rgba(31, 94, 255, 0.11), transparent 32%),
+      radial-gradient(circle at top right, rgba(15, 125, 66, 0.08), transparent 30%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%);
     color: var(--text);
     line-height: 1.5;
   }
-  header { margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
-  .brand { display: flex; align-items: center; gap: 0.6rem; }
-  .brand img { width: 1.7rem; height: 1.7rem; border-radius: 6px; flex-shrink: 0; }
-  h1 { font-size: 1.5rem; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 1.2rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: linear-gradient(180deg, var(--bg-accent), var(--surface));
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+  }
+  .brand { display: flex; align-items: center; gap: 0.75rem; }
+  .brand img { width: 2.35rem; height: 2.35rem; border-radius: 10px; flex-shrink: 0; box-shadow: 0 6px 16px rgba(31, 94, 255, 0.16); }
+  .brand-text { display: flex; flex-direction: column; gap: 0.2rem; }
+  .eyebrow {
+    margin: 0;
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 700;
+  }
+  .hero-subtitle {
+    margin: 0.55rem 0 0;
+    max-width: 56rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
+  .hero-metrics { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.95rem; }
+  .metric-chip {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 8.5rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface-strong);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+  }
+  .metric-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; color: var(--text-faint); text-transform: uppercase; }
+  .metric-value { font-size: 1rem; font-weight: 700; color: var(--text); }
+  h1 { font-size: 1.55rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; line-height: 1.1; }
   h2 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; display: flex; align-items: center; gap: 0.5rem; }
   h2 .step { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 0.75rem; font-weight: 700; flex-shrink: 0; }
   h2.collapsible { cursor: pointer; user-select: none; }
@@ -84,7 +128,10 @@
     padding: 0.5rem 0.65rem;
     box-sizing: border-box;
     font-size: 0.9rem;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at top left, rgba(31, 94, 255, 0.11), transparent 32%),
+      radial-gradient(circle at top right, rgba(15, 125, 66, 0.08), transparent 30%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%);
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -121,7 +168,10 @@
     padding: 1.6rem 1rem;
     text-align: center;
     cursor: pointer;
-    background: var(--bg);
+    background:
+      radial-gradient(circle at top left, rgba(31, 94, 255, 0.11), transparent 32%),
+      radial-gradient(circle at top right, rgba(15, 125, 66, 0.08), transparent 30%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%);
     transition: border-color 0.15s, background 0.15s;
   }
   .dropzone:hover { border-color: var(--primary); }
@@ -194,7 +244,10 @@
   .detail-header a { font-size: 0.8rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
   .detail-header a:hover { text-decoration: underline; }
   .detail-summary { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
-  .stat-mini { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.7rem; font-size: 0.78rem; }
+  .stat-mini { background:
+      radial-gradient(circle at top left, rgba(31, 94, 255, 0.11), transparent 32%),
+      radial-gradient(circle at top right, rgba(15, 125, 66, 0.08), transparent 30%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.7rem; font-size: 0.78rem; }
   .stat-mini b { font-size: 0.95rem; margin-right: 0.25rem; }
   .stat-mini.stat-yes b { color: var(--danger); }
   .stat-mini.stat-no b { color: var(--success); }
@@ -202,7 +255,10 @@
   .filters { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
   .filter-btn { font-family: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer; padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); }
   .filter-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-  .finding-card { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 0.5rem; padding: 0.3rem 0.7rem; background: var(--bg); }
+  .finding-card { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 0.5rem; padding: 0.3rem 0.7rem; background:
+      radial-gradient(circle at top left, rgba(31, 94, 255, 0.11), transparent 32%),
+      radial-gradient(circle at top right, rgba(15, 125, 66, 0.08), transparent 30%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%); }
   .finding-card[data-hidden] { display: none; }
   .finding-card summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: center; padding: 0.45rem 0; list-style: none; flex-wrap: wrap; font-size: 0.82rem; }
   .finding-card summary::-webkit-details-marker { display: none; }
@@ -217,6 +273,105 @@
   .badge-failed { background: var(--text-muted); }
   .finding-location { font-family: ui-monospace, monospace; font-size: 0.8rem; }
   .finding-rule { font-size: 0.75rem; color: var(--text-faint); margin-left: auto; }
+  /* Logo-led visual system: obsidian, warm mineral white, and a precise amber signal. */
+  :root {
+    --bg: #f1efe8; --surface: #faf9f5; --surface-strong: #fffefa;
+    --border: #d9d5ca; --border-strong: #b8b3a7; --text: #171918;
+    --text-muted: #6f716c; --text-faint: #9b9b93; --primary: #191b1b;
+    --primary-hover: #050606; --primary-soft: #efede6; --accent: #df7900;
+    --accent-soft: #fff0dc; --success: #4b6655; --success-soft: #e8eee9;
+    --danger: #aa5548; --danger-soft: #f5e7e3; --warning: #a76a19;
+    --warning-soft: #f8eddc; --radius: 12px; --radius-sm: 8px;
+    --shadow: 0 18px 48px rgba(18,20,19,.055), 0 2px 8px rgba(18,20,19,.035);
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #111312; --surface: #191b1a; --surface-strong: #202220;
+    --border: #343631; --border-strong: #555750; --text: #f3f1ea;
+    --text-muted: #b0b0a9; --text-faint: #797b75; --primary: #f1eee5;
+    --primary-hover: #ffffff; --primary-soft: #292a26; --accent: #f18a11;
+    --accent-soft: #3b2a17; --success: #91ad9b; --success-soft: #26342b;
+    --danger: #e59b8f; --danger-soft: #3d2926; --warning: #e5b56e;
+    --warning-soft: #3b3020; --shadow: 0 18px 48px rgba(0,0,0,.24), 0 2px 8px rgba(0,0,0,.18);
+  }}
+  html { background: var(--bg); }
+  body {
+    max-width: 1180px; padding: 2.4rem clamp(1rem,4vw,3.75rem) 5rem;
+    background: radial-gradient(circle at 5% 0%, rgba(223,121,0,.045), transparent 24rem), linear-gradient(180deg,var(--bg),var(--bg));
+    color: var(--text); font-family: "Avenir Next",Avenir,"Segoe UI Variable","PingFang SC","Microsoft YaHei",sans-serif; line-height: 1.55;
+  }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .32; background-image: linear-gradient(rgba(23,25,24,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(23,25,24,.022) 1px,transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(to bottom,black,transparent 72%); }
+  header { position: relative; align-items: center; margin-bottom: 2.2rem; padding: 0 0 1.55rem; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+  .brand { gap: .95rem; } .brand img { width: 3rem; height: 3rem; border-radius: 12px; box-shadow: 0 10px 24px rgba(8,10,9,.18); }
+  h1 { font-size: clamp(1.35rem,2vw,1.65rem); letter-spacing: -.035em; }
+  #lang-toggle { padding: .55rem .8rem; border-color: var(--border); background: transparent; color: var(--text-muted); }
+  #lang-toggle:hover { background: var(--surface-strong); border-color: var(--border-strong); color: var(--text); }
+  #lang-toggle:focus-visible, button:focus-visible, .dropzone:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  section { position: relative; margin-bottom: 1.15rem; padding: clamp(1.2rem,2.4vw,1.85rem); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+  h2 { margin: 0 0 1.35rem; gap: .7rem; font-size: .97rem; letter-spacing: -.01em; }
+  h2 .step { width: 1.55rem; height: 1.55rem; border: 1px solid #c8c4b9; border-radius: 8px; background: var(--primary-soft); color: var(--text); font-size: .68rem; }
+  h2.collapsible { margin-bottom: 1.35rem; } h2.collapsible.collapsed { margin-bottom: 0; }
+  h2.collapsible .chevron { width: 1.3rem; height: 1.3rem; border: 1px solid var(--border); border-radius: 50%; font-size: 0; display: inline-flex; align-items: center; justify-content: center; }
+  h2.collapsible .chevron::before { content: ""; width: .42rem; height: .42rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+  h2.collapsible.collapsed .chevron::before { transform: translateY(2px) rotate(225deg); }
+  label { margin: 1.15rem 0 .42rem; color: var(--text); font-size: .73rem; font-weight: 700; letter-spacing: .035em; }
+  label:first-of-type { margin-top: 0; }
+  input, select { min-height: 2.65rem; padding: .68rem .8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--text); box-shadow: 0 1px 1px rgba(35,39,33,.03); }
+  input:hover, select:hover { border-color: var(--border-strong); }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(223,121,0,.13); }
+  .row { gap: .65rem; margin-top: 1.3rem; flex-wrap: wrap; }
+  button { min-height: 2.5rem; padding: .62rem .95rem; border-radius: var(--radius-sm); border-color: var(--border); background: var(--surface-strong); font-size: .8rem; letter-spacing: .005em; }
+  button:hover { border-color: var(--border-strong); background: var(--surface); }
+  button.primary { background: var(--primary); border-color: var(--primary); color: var(--surface-strong); box-shadow: 0 8px 18px rgba(10,12,11,.13); }
+  button.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); transform: translateY(-1px); }
+  button.small { min-height: 2rem; padding: .4rem .65rem; }
+  .dropzone { display: flex; min-height: 11rem; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; padding: 2rem 1.25rem; border: 1px dashed var(--border-strong); border-radius: 12px; background: radial-gradient(circle at center,transparent 0 2.6rem,rgba(223,121,0,.07) 2.65rem 2.72rem,transparent 2.77rem 4.5rem,rgba(23,25,24,.035) 4.55rem 4.62rem,transparent 4.67rem),var(--surface-strong); }
+  .dropzone:hover,.dropzone.dragover { border-color: var(--accent); background-color: var(--accent-soft); }
+  .dropzone-icon { width: 2.45rem; height: 2.45rem; margin-bottom: .85rem; color: var(--text); }
+  .dropzone-icon svg { width: 100%; height: 100%; } .dropzone-icon .iris { color: var(--accent); }
+  .dropzone-text { margin: 0; color: var(--text-muted); font-size: .84rem; } .dropzone-text .link { color: var(--accent); font-weight: 700; }
+  .dropzone-filename { margin: .65rem 0 0; color: var(--text); font-size: .8rem; font-weight: 700; }
+  #status-msg,#settings-msg { min-height: 1.35rem; margin-top: 1rem; gap: .48rem; font-size: .8rem; }
+  .spinner { width: .9rem; height: .9rem; border-color: var(--border); border-top-color: var(--accent); }
+  #scan-progress { margin-top: 1.25rem; padding-top: 1.2rem; border-top: 1px solid var(--border); }
+  .stepper { gap: .2rem; } .pstep { gap: .5rem; } .pstep:not(:first-child)::before { top: .7rem; background: var(--border); }
+  .pstep-dot { width: 1.4rem; height: 1.4rem; border-width: 1px; background: var(--surface-strong); }
+  .pstep.done::before,.pstep.active::before { background: var(--text); }
+  .pstep.done .pstep-dot { background: var(--text); border-color: var(--text); color: var(--surface-strong); }
+  .pstep.active .pstep-dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px rgba(223,121,0,.1); }
+  .pstep-label { font-size: .68rem; } .pstep-elapsed { margin: .9rem 0 0; text-align: center; }
+  .report-actions,.detail-actions { gap: .8rem; }
+  a, a.report-link { color: var(--accent); } a.report-link { margin-top: 1.1rem; font-size: .78rem; }
+  a.report-link::after,.detail-header a::after { content: ""; display: inline-block; width: .42rem; height: .42rem; margin-left: .35rem; border-top: 1.5px solid currentColor; border-right: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
+  table { margin-top: .15rem; font-size: .8rem; } td,th { padding: .85rem .6rem; border-bottom-color: var(--border); } th { font-size: .67rem; letter-spacing: .08em; }
+  tbody tr[data-scan-id]:hover,tbody tr[data-scan-id].selected { background: var(--accent-soft); }
+  .pill { padding: .28rem .6rem; letter-spacing: .025em; }
+  .stat-mini { padding: .55rem .75rem; border-radius: var(--radius-sm); background: var(--surface-strong); }
+  .filters { gap: .45rem; margin-bottom: 1rem; } .filter-btn { padding: .42rem .75rem; background: var(--surface-strong); }
+  .filter-btn.active { background: var(--text); border-color: var(--text); color: var(--surface-strong); }
+  .finding-card { margin-bottom: .65rem; padding: .42rem .85rem; border-radius: var(--radius-sm); background: var(--surface-strong); }
+  .finding-card summary { gap: .6rem; padding: .55rem 0; } .finding-card .card-body { padding: .75rem .1rem .55rem; border-top-color: var(--border); font-size: .8rem; }
+  .finding-card .card-body p.remediation { border-left-color: var(--accent); background: var(--accent-soft); }
+  @media (max-width: 680px) {
+    body { width: 100%; padding: 1.25rem .75rem 3rem; } header { width: 100%; align-items: center; margin-bottom: 1.45rem; }
+    .brand img { width: 2.65rem; height: 2.65rem; } h1 { font-size: 1.25rem; }
+    .brand { min-width: 0; } #lang-toggle { min-height: 2.2rem; margin-left: auto; padding-inline: .72rem; }
+    section { padding: 1rem .9rem; border-radius: 12px; }
+    .dropzone { min-height: 10rem; padding-inline: .85rem; } .dropzone-text { max-width: 17rem; }
+    .row > button { flex: 1 1 auto; } td,th { padding: .7rem .35rem; }
+    html,body { overflow-x: hidden; } section { min-width: 0; }
+    #history-table,#config-table { table-layout: fixed; }
+    #history-table th:nth-child(3),#history-table td:nth-child(3),
+    #history-table th:nth-child(4),#history-table td:nth-child(4) { display: none; }
+    #history-table th:nth-child(1),#history-table td:nth-child(1) { width: 52%; overflow-wrap: anywhere; }
+    #history-table th:nth-child(2),#history-table td:nth-child(2) { width: 28%; }
+    #history-table th:nth-child(5),#history-table td:nth-child(5) { width: 20%; text-align: right; }
+    #config-table th:nth-child(2),#config-table td:nth-child(2),
+    #config-table th:nth-child(3),#config-table td:nth-child(3) { display: none; }
+    #config-table th:nth-child(1),#config-table td:nth-child(1) { width: 45%; overflow-wrap: anywhere; }
+    #config-table th:nth-child(4),#config-table td:nth-child(4) { width: 28%; }
+    #config-table th:nth-child(5),#config-table td:nth-child(5) { width: 27%; text-align: right; }
+    .finding-rule { width: 100%; margin-left: 0; } .detail-header { align-items: flex-start; } .detail-actions { width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -230,9 +385,9 @@
 
   <section>
     <h2><span class="step">1</span><span data-i18n="section1.heading"></span></h2>
-    <div class="dropzone" id="dropzone">
+    <div class="dropzone" id="dropzone" role="button" tabindex="0" data-i18n-aria-label="dropzone.aria">
       <input type="file" id="file-input" accept=".zip" hidden>
-      <span class="dropzone-icon">📦</span>
+      <span class="dropzone-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M2.5 12s3.65-5.7 9.5-5.7 9.5 5.7 9.5 5.7-3.65 5.7-9.5 5.7S2.5 12 2.5 12Z"/><circle class="iris" cx="12" cy="12" r="2.35"/></svg></span>
       <p class="dropzone-text"><span data-i18n="dropzone.prefix"></span><span class="link" data-i18n="dropzone.link"></span></p>
       <p class="dropzone-filename" id="dropzone-filename"></p>
     </div>
@@ -242,7 +397,7 @@
       <button id="upload-btn" class="primary" data-i18n="upload.button"></button>
     </div>
     <div id="scan-progress" style="display:none"></div>
-    <p id="status-msg"></p>
+    <p id="status-msg" aria-live="polite"></p>
     <div id="report-actions" class="report-actions" style="display:none">
       <a id="report-link" class="report-link" target="_blank" data-i18n="report.link"></a>
       <a id="export-md" class="report-link" download data-i18n="export.md"></a>
@@ -277,9 +432,9 @@
   </section>
 
   <section>
-    <h2 class="collapsible" id="settings-toggle">
+    <h2 class="collapsible" id="settings-toggle" role="button" tabindex="0" aria-expanded="true">
       <span class="step">3</span><span data-i18n="section3.heading"></span>
-      <span class="chevron">▾</span>
+      <span class="chevron" aria-hidden="true"></span>
     </h2>
     <div id="settings-body">
       <label data-i18n="settings.configName"></label>
@@ -289,12 +444,12 @@
         <option value="" data-i18n="settings.templateCustom"></option>
         <option value="https://api.openai.com/v1">OpenAI</option>
         <option value="https://api.deepseek.com/v1">DeepSeek</option>
-        <option value="https://open.bigmodel.cn/api/paas/v4">智谱 GLM</option>
+        <option value="https://open.bigmodel.cn/api/paas/v4" data-i18n="settings.optGlm"></option>
         <option value="https://dashscope.aliyuncs.com/compatible-mode/v1" data-i18n="settings.optQwen"></option>
       </select>
-      <label>Base URL</label>
+      <label data-i18n="settings.baseUrl"></label>
       <input id="base-url" data-i18n-placeholder="settings.baseUrlPlaceholder">
-      <label>API Key</label>
+      <label data-i18n="settings.apiKey"></label>
       <input id="api-key" type="password" placeholder="sk-...">
       <label data-i18n="settings.verifyModel"></label>
       <input id="verify-model" placeholder="gpt-4o-mini / glm-4-flash / deepseek-chat">
@@ -305,13 +460,13 @@
         <button id="test-btn" data-i18n="settings.testBtn"></button>
         <button id="save-btn" class="primary" data-i18n="settings.saveBtn"></button>
       </div>
-      <p id="settings-msg"></p>
+      <p id="settings-msg" aria-live="polite"></p>
 
       <h3 data-i18n="settings.savedConfigs"></h3>
       <table id="config-table">
         <thead><tr>
           <th data-i18n="settings.thName"></th>
-          <th>Base URL</th>
+          <th data-i18n="settings.baseUrl"></th>
           <th data-i18n="settings.thModel"></th>
           <th data-i18n="settings.thStatus"></th>
           <th></th>
@@ -327,23 +482,23 @@ const $ = (id) => document.getElementById(id);
 const I18N = {
   zh: {
     langToggle: "English",
-    section1: { heading: "上传 zip 并扫描" },
-    dropzone: { prefix: "拖拽 zip 文件到这里，或 ", link: "点击选择" },
-    upload: { button: "上传并开始扫描", modelLabel: "扫描用的模型", useActive: "使用当前生效配置", noConfigs: "还没有保存 LLM 配置，先去下面第 3 步添加" },
-    report: { link: "查看报告 →" },
+    section1: { heading: "上传 ZIP 文件并扫描" },
+    dropzone: { prefix: "将 ZIP 文件拖到此处，或 ", link: "点击选择", aria: "选择或拖入 ZIP 文件" },
+    upload: { button: "上传并开始扫描", modelLabel: "本次扫描使用的模型", useActive: "使用当前生效配置", noConfigs: "尚无已保存的 LLM 配置，请先在第 3 步添加" },
+    report: { link: "查看报告" },
     export: { md: "导出 Markdown", html: "导出 HTML" },
     section2: { heading: "历史扫描" },
     history: {
-      thProject: "项目", thStatus: "状态", thTime: "时间", view: "查看 →",
+      thProject: "项目", thStatus: "状态", thTime: "时间", view: "查看",
       empty: "还没有扫描记录，上传一个 zip 试试",
       delete: "删除",
       confirmDelete: (name) => `删除「${name}」这次扫描？报告和解压出来的代码会一并删掉，无法恢复。`,
-      deleteFail: (e) => `✕ 删除失败: ${e}`,
+      deleteFail: (e) => `删除失败: ${e}`,
     },
     detail: {
-      openLink: "在新窗口打开完整报告 →",
+      openLink: "在新窗口打开完整报告",
       loading: "加载中...",
-      loadFailed: (msg) => `✕ 加载报告失败: ${msg}`,
+      loadFailed: (msg) => `加载报告失败: ${msg}`,
       inProgress: (status) => `扫描还在进行中(${status})，完成后回来点这一行看结果`,
       failedNoInfo: "扫描失败，没有更多信息",
       noFindings: "没有候选发现",
@@ -351,27 +506,28 @@ const I18N = {
     section3: { heading: "LLM 供应商设置" },
     settings: {
       configName: "配置名称", configNamePlaceholder: "例如 我的 GLM / 备用 DeepSeek",
-      template: "模板", templateCustom: "自定义", optQwen: "通义千问 (兼容模式)",
-      baseUrlPlaceholder: "留空则使用官方 OpenAI 地址",
-      verifyModel: "复核用模型名",
+      template: "模板", templateCustom: "自定义", optGlm: "智谱 GLM", optQwen: "通义千问（兼容模式）",
+      baseUrl: "API 基础地址", apiKey: "API 密钥", baseUrlPlaceholder: "留空则使用 OpenAI 官方地址",
+      verifyModel: "复核模型名称",
       testBtn: "测试连接", saveBtn: "保存为新配置",
       savedConfigs: "已保存的配置",
       thName: "名称", thModel: "模型", thStatus: "状态",
       empty: "还没有保存过配置", active: "使用中", enable: "启用", delete: "删除",
       concurrency: "并发数",
-      concurrencyHint: "同时发出的复核请求数(1-15)。调大更快，但撞上限流的机会也更多——供应商返回 429 会让整轮扫描失败。这个端点频繁限流的话就往下调。",
+      concurrencyHint: "同时发送的复核请求数（1-15）。数值越大速度越快，也越容易触发限流；若供应商返回 429，请调低此值。",
       officialOpenAI: "(官方 OpenAI)",
     },
     msg: {
-      testing: "测试中...", connectOk: "✓ 连接成功",
-      connectFail: (e) => `✕ 连接失败: ${e}`, requestFail: (e) => `✕ 请求失败: ${e}`,
-      savedActivated: "✓ 已保存并启用", saveFail: (e) => `✕ 保存失败: ${e}`,
-      switched: "✓ 已切换", switchFail: (e) => `✕ 切换失败: ${e}`,
-      deleteFail: (e) => `✕ 删除失败: ${e}`,
+      testing: "测试中...", connectOk: "连接成功",
+      connectFail: (e) => `连接失败: ${e}`, requestFail: (e) => `请求失败: ${e}`,
+      savedActivated: "已保存并启用", saveFail: (e) => `保存失败: ${e}`,
+      switched: "已切换", switchFail: (e) => `切换失败: ${e}`,
+      deleteFail: (e) => `删除失败: ${e}`,
       selectZipFirst: "请先选择一个 zip 文件", onlyZip: "只支持 .zip 文件",
-      uploading: "上传中...", uploadFail: (e) => `✕ 失败: ${e}`,
+      uploading: "上传中...", uploadFail: (e) => `失败: ${e}`,
       selectedFile: (name) => `已选择: ${name}`,
     },
+    errors: { network: "无法连接到本地服务。请通过 Hawkeye 启动脚本打开页面，而不是直接打开 HTML 文件。", noApiKey: "尚未保存 LLM API 密钥，请在第 3 步测试并保存配置。", apiKeyRequired: "请输入有效的 API 密钥。" },
     status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", indexing: "构建调用图中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败" },
     progress: {
       steps: { ingesting: "解压", scanning: "扫描", indexing: "调用图", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
@@ -380,27 +536,27 @@ const I18N = {
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     stats: { reachable: "可达漏洞", safe: "安全数量", needsReview: "需要人工复查" },
-    card: { rule: "规则说明:", confidence: "置信度:", reasoning: "判断依据:", exploit: "攻击场景:", remediation: "修复建议:" },
+    card: { rule: "规则说明：", source: "来源：", confidence: "置信度：", reasoning: "判断依据：", exploit: "攻击场景：", remediation: "修复建议：" },
   },
   en: {
     langToggle: "中文",
-    section1: { heading: "Upload a zip & scan" },
-    dropzone: { prefix: "Drag a zip file here, or ", link: "click to browse" },
-    upload: { button: "Upload & start scan", modelLabel: "Model for this scan", useActive: "Use the currently active config", noConfigs: "No saved LLM configs yet — add one in step 3 below" },
-    report: { link: "View report →" },
+    section1: { heading: "Upload a ZIP file and scan" },
+    dropzone: { prefix: "Drag a ZIP file here, or ", link: "choose a file", aria: "Choose or drop a ZIP file" },
+    upload: { button: "Upload and start scan", modelLabel: "Model for this scan", useActive: "Use the active configuration", noConfigs: "No saved LLM configurations; add one in step 3" },
+    report: { link: "View report" },
     export: { md: "Export Markdown", html: "Export HTML" },
     section2: { heading: "Scan history" },
     history: {
-      thProject: "Project", thStatus: "Status", thTime: "Time", view: "View →",
+      thProject: "Project", thStatus: "Status", thTime: "Time", view: "View",
       empty: "No scans yet — upload a zip to get started",
       delete: "Delete",
       confirmDelete: (name) => `Delete this scan of "${name}"? Its report and extracted code go with it, and cannot be recovered.`,
-      deleteFail: (e) => `✕ Delete failed: ${e}`,
+      deleteFail: (e) => `Delete failed: ${e}`,
     },
     detail: {
-      openLink: "Open full report in new tab →",
+      openLink: "Open full report in new tab",
       loading: "Loading...",
-      loadFailed: (msg) => `✕ Failed to load report: ${msg}`,
+      loadFailed: (msg) => `Failed to load report: ${msg}`,
       inProgress: (status) => `Scan still in progress (${status}) — come back to this row once it's done`,
       failedNoInfo: "Scan failed, no further details",
       noFindings: "No candidate findings",
@@ -408,8 +564,8 @@ const I18N = {
     section3: { heading: "LLM provider settings" },
     settings: {
       configName: "Config name", configNamePlaceholder: "e.g. My GLM / Backup DeepSeek",
-      template: "Template", templateCustom: "Custom", optQwen: "Tongyi Qianwen (compatible mode)",
-      baseUrlPlaceholder: "Leave blank to use the official OpenAI endpoint",
+      template: "Template", templateCustom: "Custom", optGlm: "Zhipu GLM", optQwen: "Qwen (OpenAI-compatible)",
+      baseUrl: "Base URL", apiKey: "API key", baseUrlPlaceholder: "Leave blank to use the official OpenAI endpoint",
       verifyModel: "Verification model name",
       testBtn: "Test connection", saveBtn: "Save as new config",
       savedConfigs: "Saved configs",
@@ -420,15 +576,16 @@ const I18N = {
       officialOpenAI: "(Official OpenAI)",
     },
     msg: {
-      testing: "Testing...", connectOk: "✓ Connected successfully",
-      connectFail: (e) => `✕ Connection failed: ${e}`, requestFail: (e) => `✕ Request failed: ${e}`,
-      savedActivated: "✓ Saved and activated", saveFail: (e) => `✕ Save failed: ${e}`,
-      switched: "✓ Switched", switchFail: (e) => `✕ Switch failed: ${e}`,
-      deleteFail: (e) => `✕ Delete failed: ${e}`,
+      testing: "Testing...", connectOk: "Connected successfully",
+      connectFail: (e) => `Connection failed: ${e}`, requestFail: (e) => `Request failed: ${e}`,
+      savedActivated: "Saved and activated", saveFail: (e) => `Save failed: ${e}`,
+      switched: "Switched", switchFail: (e) => `Switch failed: ${e}`,
+      deleteFail: (e) => `Delete failed: ${e}`,
       selectZipFirst: "Please choose a zip file first", onlyZip: "Only .zip files are supported",
-      uploading: "Uploading...", uploadFail: (e) => `✕ Failed: ${e}`,
+      uploading: "Uploading...", uploadFail: (e) => `Failed: ${e}`,
       selectedFile: (name) => `Selected: ${name}`,
     },
+    errors: { network: "Cannot reach the local service. Open the page with the Hawkeye launcher instead of opening the HTML file directly.", noApiKey: "No LLM API key is saved. Test and save a configuration in step 3.", apiKeyRequired: "Enter a valid API key." },
     status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", indexing: "Building call graph", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed" },
     progress: {
       steps: { ingesting: "Extract", scanning: "Scan", indexing: "Call graph", verifying: "Verify", translating: "Translate", reporting: "Report" },
@@ -437,7 +594,7 @@ const I18N = {
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
     stats: { reachable: "Reachable", safe: "Safe count", needsReview: "Needs manual review" },
-    card: { rule: "Rule:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:", remediation: "How to fix:" },
+    card: { rule: "Rule:", source: "Source:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:", remediation: "Remediation:" },
   },
 };
 
@@ -494,13 +651,18 @@ $("lang-toggle").addEventListener("click", () => {
 
 function setSettingsCollapsed(collapsed) {
   $("settings-toggle").classList.toggle("collapsed", collapsed);
+  $("settings-toggle").setAttribute("aria-expanded", String(!collapsed));
   $("settings-body").classList.toggle("collapsed", collapsed);
 }
 setSettingsCollapsed(localStorage.getItem("hawkeye-settings-collapsed") === "1");
-$("settings-toggle").addEventListener("click", () => {
+const toggleSettings = () => {
   const collapsed = !$("settings-body").classList.contains("collapsed");
   setSettingsCollapsed(collapsed);
   localStorage.setItem("hawkeye-settings-collapsed", collapsed ? "1" : "0");
+};
+$("settings-toggle").addEventListener("click", toggleSettings);
+$("settings-toggle").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSettings(); }
 });
 
 $("provider-template").addEventListener("change", (e) => {
@@ -520,7 +682,7 @@ $("test-btn").addEventListener("click", async () => {
         verify_model: $("verify-model").value,
       }),
     });
-    setMsg(msg, result.success ? t("msg.connectOk") : t("msg.connectFail")(result.error), result.success ? "ok" : "err");
+    setMsg(msg, result.success ? t("msg.connectOk") : t("msg.connectFail")(localizeError(result.error)), result.success ? "ok" : "err");
   } catch (e) {
     setMsg(msg, t("msg.requestFail")(e.message), "err");
   }
@@ -656,6 +818,9 @@ function setSelectedFile(file) {
 }
 
 dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
 fileInput.addEventListener("change", () => setSelectedFile(fileInput.files[0]));
 
 ["dragenter", "dragover"].forEach((evt) => {
@@ -748,7 +913,7 @@ function renderProgress(status) {
     let state = "";
     if (isDone || i < lastActiveStep) state = "done";
     else if (i === lastActiveStep) state = isFailed ? "failed" : "active";
-    const mark = state === "done" ? "✓" : state === "failed" ? "!" : String(i + 1);
+    const mark = state === "done" || state === "failed" ? "" : String(i + 1);
     return `<div class="pstep ${state}"><div class="pstep-dot">${mark}</div>`
       + `<div class="pstep-label">${t(`progress.steps.${step}`)}</div></div>`;
   }).join("");
@@ -786,7 +951,7 @@ async function pollScan(scanId, statusMsg, reportLink) {
     renderProgress(scan.status);
     if (scan.status === "done") {
       stopElapsed();
-      setMsg(statusMsg, `✓ ${label}`, "ok");
+      setMsg(statusMsg, label, "ok");
       reportLink.href = `/scans/${scanId}/report.html`;
       setExportLinks(scanId, "export-md", "export-html");
       $("report-actions").style.display = "flex";
@@ -794,7 +959,7 @@ async function pollScan(scanId, statusMsg, reportLink) {
     }
     if (scan.status === "failed") {
       stopElapsed();
-      setMsg(statusMsg, `✕ ${label}${scan.error_message ? `: ${scan.error_message}` : ""}`, "err");
+      setMsg(statusMsg, `${label}${scan.error_message ? `: ${localizeError(scan.error_message)}` : ""}`, "err");
       return;
     }
     setMsg(statusMsg, label, "");
@@ -904,7 +1069,7 @@ function findingCardHtml(item) {
       </summary>
       <div class="card-body">
         <p><strong>${t("card.rule")}</strong> ${esc(messages)}</p>
-        <p><strong>CWE:</strong> ${esc(item.cwe || "-")} &nbsp;·&nbsp; <strong>Source:</strong> ${esc(item.source_file)}:${esc(item.source_line)}</p>
+        <p><strong>CWE:</strong> ${esc(item.cwe || "-")} &nbsp;·&nbsp; <strong>${t("card.source")}</strong> ${esc(item.source_file)}:${esc(item.source_line)}</p>
         ${confidence}
         <p><strong>${t("card.reasoning")}</strong> ${bilingual("reasoning")}</p>
         ${exploit}
@@ -931,7 +1096,7 @@ async function selectScan(tr, project, scan) {
 
   if (scan.status === "failed") {
     $("detail-actions-wrap").style.display = "none";
-    body.innerHTML = `<p class="err" style="font-size:0.85rem">✕ ${esc(scan.error_message || t("detail.failedNoInfo"))}</p>`;
+    body.innerHTML = `<p class="err" style="font-size:0.85rem">${esc(scan.error_message ? localizeError(scan.error_message) : t("detail.failedNoInfo"))}</p>`;
     return;
   }
   if (scan.status !== "done") {
