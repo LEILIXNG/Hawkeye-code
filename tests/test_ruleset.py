@@ -32,6 +32,7 @@ from scanner.common import (
     load_excluded_rules,
     load_out_of_scope_cwes,
 )
+from scanner.core import drop_excluded_paths, path_is_excluded
 
 CUSTOM_RULES_DIR = ROOT / "rules" / "custom"
 REQUIRED_RULE_FIELDS = ("id", "languages", "severity", "message")
@@ -118,16 +119,22 @@ class TestRulesetFile:
         assert all(isinstance(g, str) and g.strip() for g in excluded)
         assert len(set(excluded)) == len(excluded), "duplicate globs in exclude_paths"
 
-    def test_multi_segment_globs_are_unanchored(self):
-        """semgrep anchors an --exclude pattern containing a slash to the
-        scan root, so a bare `src/it` matches the top-level one and silently
-        misses moduleA/src/it. Those have to be written as `**/src/it`."""
+    def test_multi_segment_globs_carry_no_globstar_prefix(self):
+        """The inverse of what this asserted until 2026-09-09.
+
+        `**/src/it` was believed to lift semgrep's anchoring. Measured
+        against the pinned 1.173.0 it does the opposite: the pattern then
+        matches nothing at all, which is why both integration-test entries
+        had been dead since they were written. Depth is handled by
+        scanner/core.py:drop_excluded_paths instead, which reads a glob as a
+        run of consecutive path segments -- so the prefix is not just
+        useless here, it would be a second thing to strip.
+        """
         for glob in load_excluded_paths():
-            if "/" in glob:
-                assert glob.startswith("**/"), (
-                    f"{glob!r} contains a slash, so it only matches at the scan root. "
-                    "Write it as `**/" + glob.lstrip("/") + "` to match at any depth."
-                )
+            assert not glob.startswith("**/"), (
+                f"{glob!r} starts with `**/`, which semgrep matches against nothing. "
+                "Write it as `" + glob.removeprefix("**/") + "`."
+            )
 
     def test_exclude_paths_are_relative_globs(self):
         """An absolute path, or one climbing out of the target, cannot match
@@ -184,14 +191,12 @@ def test_semgrep_accepts_the_whole_ruleset():
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
-def test_exclude_paths_actually_keep_files_out_of_the_scan(tmp_path):
-    """The failure this catches is silent: a glob that matches nothing still
-    scans clean, just with the noise it was meant to remove. So rather than
-    re-asserting the strings, plant one file per configured glob and check
-    semgrep's own list of scanned paths.
-
-    Each glob is exercised both at the top level and one directory down,
-    because that is exactly where the anchoring trap shows up.
+def test_semgrep_exclude_covers_the_bare_name_globs(tmp_path):
+    """What semgrep's own --exclude does keep out, so the pipeline is not
+    paying to scan it. Only the entries without a slash: a pattern
+    containing one is anchored to the scan root, which an ingested zip
+    always sits below -- those are enforced by drop_excluded_paths instead,
+    and covered by the test below.
     """
     def plant(rel: str):
         target = tmp_path / rel
@@ -201,11 +206,12 @@ def test_exclude_paths_actually_keep_files_out_of_the_scan(tmp_path):
     plant("src/main/java/Kept.java")  # control: must survive every exclusion
     expected_excluded = set()
     for glob in load_excluded_paths():
-        stem = glob.removeprefix("**/")
-        if stem.startswith("*."):  # file glob, e.g. *.min.js
-            paths = [f"a{stem[1:]}", f"moduleA/b{stem[1:]}"]
+        if "/" in glob:
+            continue
+        if glob.startswith("*."):  # file glob, e.g. *.min.js
+            paths = [f"a{glob[1:]}", f"moduleA/b{glob[1:]}"]
         else:
-            paths = [f"{stem}/V.java", f"moduleA/{stem}/V.java"]
+            paths = [f"{glob}/V.java", f"moduleA/{glob}/V.java"]
         for rel in paths:
             plant(rel)
             expected_excluded.add(rel)
@@ -228,6 +234,49 @@ def test_exclude_paths_actually_keep_files_out_of_the_scan(tmp_path):
     )
     leaked = sorted(expected_excluded & scanned)
     assert not leaked, f"exclude_paths did not keep these out of the scan: {leaked}"
+
+
+def test_every_configured_glob_excludes_at_any_depth():
+    """The guarantee the ruleset file states, which is the tool's to keep.
+
+    A zip is unpacked one or more levels below the scan root, so an entry
+    that only works at the top level does nothing on a real target -- which
+    is exactly what `**/src/it` had been doing.
+    """
+    for glob in load_excluded_paths():
+        stem = glob.removeprefix("**/")
+        if stem.startswith("*."):
+            leaf = f"a{stem[1:]}"
+        else:
+            leaf = f"{stem}/V.java"
+        for prefix in ("", "moduleA/", "p14/b/nested/"):
+            assert path_is_excluded(prefix + leaf, load_excluded_paths()), (
+                f"{glob!r} does not exclude {prefix + leaf!r}"
+            )
+
+
+def test_exclusions_do_not_swallow_ordinary_source():
+    kept = [
+        "src/main/java/Kept.java",
+        "src/itx/V.java",          # not a segment match for src/it
+        "it/core/V.java",          # a package named it, not src/it
+        "app.js",
+    ]
+    for rel in kept:
+        assert not path_is_excluded(rel, load_excluded_paths()), f"{rel!r} was excluded"
+
+
+def test_drop_excluded_paths_judges_the_sink():
+    """Taint arriving from a test helper into production code is still a
+    finding about the production code."""
+    candidates = [
+        {"sink_file": "src/it/V.java", "source_file": "src/main/java/A.java"},
+        {"sink_file": "src/main/java/A.java", "source_file": "src/it/V.java"},
+    ]
+
+    kept = drop_excluded_paths(candidates, load_excluded_paths())
+
+    assert [c["sink_file"] for c in kept] == ["src/main/java/A.java"]
 
 
 def test_every_custom_rule_file_has_an_annotated_fixture():

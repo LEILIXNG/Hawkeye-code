@@ -139,6 +139,39 @@ def _no_console() -> dict:
     return {"creationflags": subprocess.CREATE_NO_WINDOW}
 
 
+def path_is_excluded(rel_path: str, globs: list[str]) -> bool:
+    """Whether a workspace-relative path falls under one of the exclusions.
+
+    Semgrep's own --exclude cannot express these, which is why they are
+    checked again here. Measured against the pinned 1.173.0: a pattern with
+    no slash matches a path segment at any depth, but one containing a slash
+    is anchored to the scan root, and a leading `**/` does not lift that --
+    it makes the pattern match nothing at all. Anchoring is useless for this
+    tool anyway, since an ingested zip puts the project one or more levels
+    below the scan root.
+
+    Here every glob matches as a run of consecutive segments at any depth,
+    which is what the ruleset file has always claimed the entries do.
+    """
+    parts = rel_path.replace("\\", "/").strip("/").split("/")
+    for glob in globs:
+        wanted = [segment for segment in glob.split("/") if segment and segment != "**"]
+        if not wanted:
+            continue
+        for start in range(len(parts) - len(wanted) + 1):
+            if all(fnmatch(parts[start + i], wanted[i]) for i in range(len(wanted))):
+                return True
+    return False
+
+
+def drop_excluded_paths(candidates: list[dict], globs: list[str]) -> list[dict]:
+    """Findings whose sink sits in excluded code. Judged on the sink rather
+    than the source: the sink is where the finding is reported, and taint
+    arriving from a test helper into production code is still a finding
+    about the production code."""
+    return [c for c in candidates if not path_is_excluded(c["sink_file"], globs)]
+
+
 def relpath(target: Path, abs_path: str) -> str:
     try:
         return str(Path(abs_path).resolve().relative_to(target.resolve()))

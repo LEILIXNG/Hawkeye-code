@@ -23,7 +23,8 @@ from common import (
     write_json,
 )
 from scanner.core import (  # noqa: F401
-    dedup, dedup_copies, drop_out_of_scope, extract_source_location, normalize, relpath, run_semgrep,
+    dedup, dedup_copies, drop_excluded_paths, drop_out_of_scope, extract_source_location,
+    normalize, relpath, run_semgrep,
 )
 
 DEFAULT_CONFIGS = load_default_configs()
@@ -48,7 +49,7 @@ def main():
 
     raw = run_semgrep(target, configs, EXCLUDED_RULES, EXCLUDED_PATHS)
     candidates = normalize(raw, target)
-    in_scope = drop_out_of_scope(candidates, OUT_OF_SCOPE_CWES)
+    in_scope = drop_excluded_paths(drop_out_of_scope(candidates, OUT_OF_SCOPE_CWES), EXCLUDED_PATHS)
     deduped = dedup_copies(dedup(in_scope), target)
 
     write_json(Path(args.out), deduped)

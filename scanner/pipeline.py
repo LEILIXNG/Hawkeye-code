@@ -20,7 +20,8 @@ from scanner.common import (
 )
 from scanner.callgraph import index_workspace
 from scanner.core import (
-    build_context, build_prompt, dedup, dedup_copies, drop_out_of_scope, normalize, run_semgrep,
+    build_context, build_prompt, dedup, dedup_copies, drop_excluded_paths, drop_out_of_scope,
+    normalize, run_semgrep,
 )
 from scanner.ingest import safe_extract
 from scanner.render import render
@@ -124,7 +125,8 @@ def run_pipeline(
     try:
         raw = run_semgrep(workspace_dir, DEFAULT_CONFIGS, EXCLUDED_RULES, EXCLUDED_PATHS)
         in_scope = drop_out_of_scope(normalize(raw, workspace_dir), OUT_OF_SCOPE_CWES)
-        candidates = dedup_copies(dedup(in_scope), workspace_dir)
+        kept = drop_excluded_paths(in_scope, EXCLUDED_PATHS)
+        candidates = dedup_copies(dedup(kept), workspace_dir)
     except Exception as e:
         raise PipelineError(f"scan failed: {e}") from e
 

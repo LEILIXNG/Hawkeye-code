@@ -116,10 +116,19 @@ out_of_scope_cwes:
 # a redundant entry is harmless but misleads the next reader into thinking
 # it is doing work.
 #
-# Two glob traps, both verified rather than assumed:
-#   - a bare name (`target`) matches at any depth, including moduleA/target;
-#   - a pattern containing a slash is anchored to the scan root, so `src/it`
-#     silently misses moduleA/src/it. Write those as `**/src/it`.
+# How these are matched, measured against the pinned 1.173.0 rather than
+# assumed -- an earlier version of this note had it backwards:
+#   - semgrep matches a bare name (`target`) against a path segment at any
+#     depth, including moduleA/target;
+#   - a pattern containing a slash it anchors to the scan root, and a
+#     leading `**/` does not lift that -- `**/src/it` matches nothing at
+#     all. Anchoring is useless here anyway, because an ingested zip puts
+#     the project one or more levels below the scan root.
+# So the entries below are applied twice: passed to semgrep as --exclude,
+# which is what saves the scan time, and enforced again in
+# scanner/core.py:drop_excluded_paths, which is what makes an entry with a
+# slash in it mean anything. Both treat a glob as a run of consecutive path
+# segments, so write `src/it`, not `**/src/it`.
 # Keep this list to build output, dependencies, generated code and test
 # trees. Directories that merely look unimportant (docs/, examples/) hold
 # real source and belong in the scan -- a false negative is worse than the
@@ -135,8 +144,8 @@ exclude_paths:
   - third_party               # vendored dependency source
   - external
   - testdata                  # test fixtures (Go convention, used elsewhere too)
-  - "**/src/it"               # Maven failsafe integration tests
-  - "**/src/integrationTest"  # Gradle integration tests
+  - src/it                    # Maven failsafe integration tests
+  - src/integrationTest       # Gradle integration tests
   - "*.min.js"                # minified bundles: unreadable and not the source
 
 configs:
