@@ -9,6 +9,7 @@ Markdown is generated on demand from the stored report.json rather than
 written by the pipeline: an export format that only exists for scans run
 after it shipped would be useless on the reports already on disk.
 """
+from scanner.cvss import score_for, vector_for
 from scanner.render import RISK_LEVELS, build_summary, risk_level, vuln_type_label
 from scanner.report_i18n import DEFAULT_LANG, REPORT_I18N
 
@@ -74,6 +75,7 @@ def _finding_lines(item: dict, index: int, lang: str) -> list[str]:
             lines.append(f"- **{_t(lang, label_key)}** {value}")
 
     field("card.source", _path(item["source_file"], item["source_line"]))
+    field("card.cvss", f'{score_for(item):.1f} (`CVSS:3.1/{vector_for(item)}`)')
     field("card.cwe", _cwe_text(item))
     field("card.rule", _one_line(" / ".join(item.get("messages", [item.get("message", "")]))))
     confidence = finding.get("confidence")

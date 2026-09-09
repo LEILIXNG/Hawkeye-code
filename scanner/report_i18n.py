@@ -23,7 +23,7 @@ REPORT_I18N = {
         "card": {
             "type": "漏洞类型:",
             "rule": "规则说明:",
-            "cwe": "CWE:",
+            "cvss": "CVSS 评分:", "cwe": "CWE:",
             "source": "Source:",
             "confidence": "置信度:",
             "reasoning": "判断依据:",
@@ -45,7 +45,7 @@ REPORT_I18N = {
         "card": {
             "type": "Vulnerability type:",
             "rule": "Rule:",
-            "cwe": "CWE:",
+            "cvss": "CVSS score:", "cwe": "CWE:",
             "source": "Source:",
             "confidence": "Confidence:",
             "reasoning": "Reasoning:",

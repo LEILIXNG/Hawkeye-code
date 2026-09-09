@@ -214,32 +214,44 @@ class TestFacetPagination:
 
 
 class TestRiskLevel:
-    def test_a_confirmed_path_carries_the_engine_severity(self):
-        assert risk_level(make_item(severity="ERROR", reachable="yes")) == "critical"
-        assert risk_level(make_item(severity="WARNING", reachable="yes")) == "high"
-        assert risk_level(make_item(severity="INFO", reachable="yes")) == "medium"
+    def test_a_confirmed_path_carries_the_cwe_cvss_band(self):
+        # 9.8, 7.5 and 5.9 respectively -- see scanner/cvss.py.
+        assert risk_level(make_item(cwe="CWE-89", reachable="yes")) == "critical"
+        assert risk_level(make_item(cwe="CWE-22", reachable="yes")) == "high"
+        assert risk_level(make_item(cwe="CWE-327", reachable="yes")) == "medium"
 
-    def test_not_reachable_bottoms_out_however_loud_the_rule_was(self):
-        # These are the findings the summary counts as safe -- an ERROR the
-        # verifier proved unreachable must not outrank a reachable WARNING.
-        assert risk_level(make_item(severity="ERROR", reachable="no")) == "low"
-        assert risk_level(make_item(severity="WARNING", reachable="no")) == "low"
+    def test_the_engine_severity_no_longer_decides_anything(self):
+        # ERROR covers both an unauthenticated SQL injection and a weak
+        # hash, which is the reason the grading moved to CVSS.
+        for severity in ("ERROR", "WARNING", "INFO", None):
+            assert risk_level(make_item(cwe="CWE-89", severity=severity, reachable="yes")) == "critical"
+            assert risk_level(make_item(cwe="CWE-327", severity=severity, reachable="yes")) == "medium"
+
+    def test_not_reachable_bottoms_out_however_high_the_score(self):
+        # These are the findings the summary counts as safe -- a 9.8 the
+        # verifier proved unreachable must not outrank a reachable 5.9.
+        assert risk_level(make_item(cwe="CWE-89", reachable="no")) == "low"
+        assert risk_level(make_item(cwe="CWE-22", reachable="no")) == "low"
         # RISK_LEVELS runs highest first, so a bigger index is a lower risk.
-        safe_error = RISK_LEVELS.index(risk_level(make_item(severity="ERROR", reachable="no")))
-        live_warning = RISK_LEVELS.index(risk_level(make_item(severity="WARNING", reachable="yes")))
-        assert safe_error > live_warning
+        safe_injection = RISK_LEVELS.index(risk_level(make_item(cwe="CWE-89", reachable="no")))
+        live_weak_hash = RISK_LEVELS.index(risk_level(make_item(cwe="CWE-327", reachable="yes")))
+        assert safe_injection > live_weak_hash
 
     def test_no_verdict_is_one_step_down_not_the_floor(self):
-        # uncertain/verifier_failed are missing evidence, not evidence of safety.
-        assert risk_level(make_item(severity="ERROR", reachable="uncertain")) == "high"
-        assert risk_level(make_item(severity="ERROR", verifier_failed=True)) == "high"
-        assert risk_level(make_item(severity="WARNING", reachable="uncertain")) == "medium"
-        assert risk_level(make_item(severity="INFO", reachable="uncertain")) == "low"
+        # uncertain/verifier_failed are missing evidence, not evidence of
+        # safety. Deliberately a whole band rather than CVSS Temporal
+        # RC:U, whose 0.92 multiplier leaves a 9.8 Critical.
+        assert risk_level(make_item(cwe="CWE-89", reachable="uncertain")) == "high"
+        assert risk_level(make_item(cwe="CWE-89", verifier_failed=True)) == "high"
+        assert risk_level(make_item(cwe="CWE-22", reachable="uncertain")) == "medium"
+        assert risk_level(make_item(cwe="CWE-327", reachable="uncertain")) == "low"
 
-    def test_a_missing_severity_falls_back_to_the_middle(self):
+    def test_an_unclassified_weakness_uses_the_default_band(self):
+        # Not critical: something nobody has classified should not outrank a
+        # confirmed injection in the report's own ordering.
         item = make_item(reachable="yes")
-        item["severity"] = None
-        assert risk_level(item) == "medium"
+        item["cwe"] = None
+        assert risk_level(item) == "high"
 
     def test_the_facet_keeps_scale_order_and_drops_empty_levels(self):
         items = [make_item(severity="WARNING", reachable="no")] + [make_item(severity="ERROR", reachable="yes")] * 2

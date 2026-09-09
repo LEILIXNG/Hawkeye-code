@@ -248,6 +248,11 @@
   .pill-failed { background: var(--danger-soft); color: var(--danger); }
   .pill-active { background: var(--success-soft); color: var(--success); }
   .pill-progress { background: var(--warning-soft); color: var(--warning); }
+  .risk-critical { background: var(--danger); color: #fff; }
+  .risk-high { background: var(--danger-soft); color: var(--danger); }
+  .risk-medium { background: var(--warning-soft); color: var(--warning); }
+  .risk-low { background: var(--border); color: var(--text-muted); }
+  .cvss { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .detail-actions { display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap; }
   a { color: var(--primary); }
   .config-row-name { font-weight: 600; }
@@ -566,6 +571,7 @@ const I18N = {
       etaUnknown: "预计剩余 --:--",
     },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
+    risk: { critical: "致命", high: "高危", medium: "中危", low: "低危" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     stats: { reachable: "可达漏洞", safe: "安全数量", needsReview: "需要人工复查" },
     card: { rule: "规则说明：", source: "来源：", confidence: "置信度：", reasoning: "判断依据：", exploit: "攻击场景：", remediation: "修复建议：" },
@@ -637,6 +643,7 @@ const I18N = {
       etaUnknown: "--:-- left",
     },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
+    risk: { critical: "Critical", high: "High", medium: "Medium", low: "Low" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
     stats: { reachable: "Reachable", safe: "Safe count", needsReview: "Needs manual review" },
     card: { rule: "Rule:", source: "Source:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:", remediation: "Remediation:" },
@@ -1196,6 +1203,17 @@ function esc(s) {
   }[c]));
 }
 
+// Reports rendered before findings carried a CVSS score fall back to the
+// engine's own severity, which is what they were graded by at the time.
+function riskPill(item) {
+  if (item.risk_level == null || item.cvss_score == null) {
+    return `<span>${esc(item.severity ?? "")}</span>`;
+  }
+  const vector = esc(item.cvss_vector ?? "");
+  return `<span class="pill risk-${esc(item.risk_level)}" title="${vector}">${t(`risk.${item.risk_level}`)}</span>`
+    + `<span class="cvss" title="${vector}">CVSS ${item.cvss_score.toFixed(1)}</span>`;
+}
+
 function findingCardHtml(item) {
   const finding = item.finding || {};
   const reachable = finding.reachable || "uncertain";
@@ -1225,7 +1243,7 @@ function findingCardHtml(item) {
     <details class="finding-card" data-bucket="${esc(bucket)}">
       <summary>
         <span class="badge ${badgeClass}">${badgeLabel}</span>
-        <span>${esc(item.severity)}</span>
+        ${riskPill(item)}
         <span class="finding-location">${esc(item.sink_file)}:${esc(item.sink_line)}</span>
         <span class="finding-rule">${esc(ruleIds)}</span>
       </summary>

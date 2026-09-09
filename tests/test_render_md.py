@@ -36,16 +36,16 @@ class TestRenderMarkdown:
 
     def test_findings_are_grouped_by_risk_highest_first(self):
         items = [
-            make_item(severity="ERROR", reachable="no"),        # 低危
-            make_item(severity="WARNING", reachable="yes"),     # 高危
-            make_item(severity="ERROR", reachable="yes"),       # 致命
+            make_item(cwe="CWE-89", reachable="no"),        # 低危
+            make_item(cwe="CWE-22", reachable="yes"),       # 高危 (7.5)
+            make_item(cwe="CWE-89", reachable="yes"),       # 致命 (9.8)
         ]
         out = render_markdown(items, "demo")
 
         assert out.index("## 致命 (1)") < out.index("## 高危 (1)") < out.index("## 低危 (1)")
 
     def test_a_level_nothing_landed_in_gets_no_heading(self):
-        out = render_markdown([make_item(severity="ERROR", reachable="yes")], "demo")
+        out = render_markdown([make_item(cwe="CWE-89", reachable="yes")], "demo")
 
         assert "## 致命 (1)" in out
         assert "中危" not in out

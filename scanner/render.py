@@ -13,6 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 from scanner.common import write_json
+from scanner.cvss import band, score_for, vector_for
 from scanner.report_i18n import DEFAULT_LANG, REPORT_I18N
 
 SEVERITY_ORDER = {"ERROR": 0, "WARNING": 1, "INFO": 2}
@@ -84,30 +85,35 @@ RISK_LEVELS = ("critical", "high", "medium", "low")
 
 
 def risk_level(item: dict) -> str:
-    """Four-level risk rating: Semgrep's severity graded by whether the
+    """Four-level risk rating: the CWE's CVSS band, graded by whether the
     verifier actually reached the sink.
 
-    Semgrep alone only emits ERROR/WARNING/INFO, so a fourth level has to
-    come from somewhere -- and reachability is exactly what this tool adds
-    on top of the engine.
+    The band comes from scanner/cvss.py rather than from Semgrep's
+    ERROR/WARNING/INFO, which cannot separate an unauthenticated SQL
+    injection from a weak hash -- both are ERROR. CVSS bands put them four
+    points apart.
+
+    Reachability stays as the second axis, and deliberately not as CVSS
+    Temporal Report Confidence: RC:U multiplies by 0.92, which moves a 9.8
+    to 9.0 and leaves it Critical. "We could not confirm this reaches the
+    sink" deserves more than a rounding error, so it drops a whole band.
 
     The three verdicts are not two things. `no` is the verifier stating the
     sink is unreachable or already sanitized: that is evidence of safety,
-    and it bottoms out the scale no matter how loud the rule was. These are
-    the same findings the summary counts as "safe", so grading them as
-    anything else would have the report contradicting its own headline.
-    `uncertain` and `verifier_failed` are the absence of a verdict, not a
-    negative one -- unproven, so one step down from confirmed, never to the
-    floor.
+    and it bottoms out the scale no matter how high the base score was.
+    These are the same findings the summary counts as "safe", so grading
+    them as anything else would have the report contradicting its own
+    headline. `uncertain` and `verifier_failed` are the absence of a
+    verdict, not a negative one -- unproven, so one step down from
+    confirmed, never to the floor.
     """
-    severity = (item.get("severity") or "").upper()
     verdict = verdict_of(item)
     if verdict == "no":
         return "low"
-    confirmed = {"ERROR": "critical", "WARNING": "high"}.get(severity, "medium")
+    confirmed = band(score_for(item))
     if verdict == "yes":
         return confirmed
-    return {"critical": "high", "high": "medium", "medium": "low"}[confirmed]
+    return {"critical": "high", "high": "medium", "medium": "low", "low": "low", "none": "low"}[confirmed]
 
 
 def _sink_basename(item: dict) -> str:
@@ -145,6 +151,8 @@ def _card_html(item: dict) -> str:
     vuln_type = vuln_type_label(item)
     severity = item.get("severity") or "UNKNOWN"
     risk = risk_level(item)
+    score = score_for(item)
+    vector = vector_for(item)
 
     return f"""
     <details class="card" data-bucket="{filter_bucket}" data-type="{html.escape(vuln_type)}"
@@ -152,7 +160,8 @@ def _card_html(item: dict) -> str:
       <summary title="{html.escape(item["sink_file"])}:{item["sink_line"]}">
         <span class="badge {badge_class}" data-i18n="reachable.{badge_key}"></span>
         <span class="vuln-type">{html.escape(vuln_type)}</span>
-        <span class="severity risk-{risk}" data-i18n="risk.{risk}" title="Semgrep: {html.escape(severity)}"></span>
+        <span class="severity risk-{risk}" data-i18n="risk.{risk}" title="CVSS {score:.1f} (CVSS:3.1/{html.escape(vector)}) · Semgrep: {html.escape(severity)}"></span>
+        <span class="cvss" title="CVSS:3.1/{html.escape(vector)}">CVSS {score:.1f}</span>
         <span class="location"><span class="loc-path">{html.escape(short_location(item["sink_file"]))}</span><span class="loc-line">:{item["sink_line"]}</span></span>
         <span class="rule" title="{html.escape(rule_ids)}">{html.escape(rule_ids)}</span>
       </summary>
@@ -432,6 +441,7 @@ def render_html(verified: list[dict], project_name: str) -> str:
     padding: 0.1rem 0.4rem; border-radius: 4px;
     background: var(--neutral-soft); color: var(--neutral);
   }}
+  .cvss {{ font-size: 0.72rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }}
   .risk-critical {{ background: var(--danger); color: #fff; }}
   .risk-high {{ background: var(--danger-soft); color: var(--danger); }}
   .risk-medium {{ background: var(--warning-soft); color: var(--warning); }}
@@ -596,12 +606,28 @@ def render_html(verified: list[dict], project_name: str) -> str:
 """
 
 
+def with_scores(item: dict) -> dict:
+    """A finding plus its CVSS fields, for report.json.
+
+    Stamped here rather than left for each consumer to work out: the web UI,
+    the Markdown export and the database all read this file, and a table
+    re-implemented three times is three tables that drift.
+    """
+    return {
+        **item,
+        "cvss_vector": f"CVSS:3.1/{vector_for(item)}",
+        "cvss_score": score_for(item),
+        "risk_level": risk_level(item),
+    }
+
+
 def render(verified: list[dict], project_name: str, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     html_path = out_dir / "report.html"
     json_path = out_dir / "report.json"
 
     html_path.write_text(render_html(verified, project_name), encoding="utf-8")
-    write_json(json_path, {"project": project_name, "summary": build_summary(verified), "findings": verified})
+    write_json(json_path, {"project": project_name, "summary": build_summary(verified),
+                           "findings": [with_scores(item) for item in verified]})
 
     return {"html_path": str(html_path), "json_path": str(json_path), "summary": build_summary(verified)}
