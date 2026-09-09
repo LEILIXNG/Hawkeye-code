@@ -47,17 +47,25 @@ Providers can also be configured in the web UI and switched per scan, without ed
 
 ## Run
 
+`./start.sh` on macOS and Linux, `start.cmd` on Windows. Either picks a free port
+(8000-8020), starts the server and opens the browser. Launching twice does not start a
+second server; it reuses the one already running.
+
+Drag a zip of the project onto **New scan** and it becomes a row under **Scans**, where
+its progress, elapsed time and live log live. Deleting a scan that is still running
+stops it first. Reports are saved under `data/reports/` and open straight from disk —
+no server needed to read one.
+
+The page is the application's window. The launcher window can be closed and the server
+keeps running; closing the page stops it, unless a scan is still going, and **Server**
+has a button to stop it outright. A scan interrupted by the server stopping is marked
+as such the next time it starts, rather than sitting at "verifying" forever.
+
+To run the server yourself instead:
+
 ```bash
 uvicorn apps.api.main:app --port 8000
 ```
-
-Open `http://localhost:8000`, drag in a zip of the project, wait for the scan, read the report. Reports are saved under `data/reports/` and open straight from disk — no server needed to read one.
-
-There is a launcher for either platform that picks a free port (8000-8020), starts the
-server and opens the browser: `./start.sh` on macOS and Linux, `start.cmd` on Windows.
-The server is started detached, so the window you launched it from can be closed
-without stopping it — use the "stop server" button under the page's log section, or
-just launch again, which reuses the instance that is already running.
 
 ## Command line
 
@@ -87,13 +95,14 @@ Skip `04_translate.py` and the report reads in whichever language the model answ
 python -m pytest tests/ -v
 ```
 
-213 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph, the rule set contract, the HTTP API. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
+378 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph, the rule set contract, the HTTP API. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
 
 ## How it works
 
 - **Cross-file analysis.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph.py` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Recognises HTTP handlers, message listeners (Kafka/Rabbit/JMS), Servlet/Filter methods, and MyBatis mapper XML.
 - **Semgrep for candidates, LLM for verdicts.** Every verdict carries `reachable` / `sanitized` / `confidence` / `reasoning`, plus an exploit scenario and a concrete fix naming the line and the replacement.
 - **Dataflow-scoped.** Findings that match a static property — weak hash, missing cookie flag, disabled cert check — are filtered out by CWE before they cost a verify call.
+- **Risk from CVSS, not from the engine's own severity.** Semgrep grades everything ERROR or WARNING, which cannot separate an unauthenticated SQL injection from a weak hash. `scanner/cvss.py` maps each CWE to a v3.1 base vector and computes the score from it; reachability then grades that band, so a finding proved unreachable ends up lowest whatever it scored.
 - **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated in `rules/ruleset.yml` down to server-side Java/Spring. Five custom rules under `rules/custom` cover command injection, path traversal, XXE, open redirect and MyBatis `${}`.
 
 Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
