@@ -104,14 +104,28 @@
   .metric-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; color: var(--text-faint); text-transform: uppercase; }
   .metric-value { font-size: 1rem; font-weight: 700; color: var(--text); }
   h1 { font-size: 1.55rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; line-height: 1.1; }
+  .nav { display: flex; align-items: center; gap: 0.25rem; margin-left: auto; }
+  .nav-item {
+    position: relative; display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.4rem 0.75rem; border: 0; border-radius: var(--radius-sm); cursor: pointer;
+    background: transparent; color: var(--text-muted); font-size: 0.82rem; font-weight: 600;
+    font-family: inherit;
+  }
+  .nav-item:hover { background: var(--primary-soft); color: var(--primary); }
+  /* An underline rather than a tinted pill: --primary-soft is #efede6 in
+     this brand, which against the page's own off-white reads as no
+     highlight at all. */
+  .nav-item.active { color: var(--text); }
+  .nav-item.active::after {
+    content: ""; position: absolute; left: 0.6rem; right: 0.6rem; bottom: 0.1rem;
+    height: 2px; border-radius: 2px; background: var(--primary);
+  }
+  /* A scan keeps running while its page is not the one on screen, and the
+     tab is the only place left to say so. */
+  .nav-dot { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
+  main { display: block; }
   h2 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; display: flex; align-items: center; gap: 0.5rem; }
   h2 .step { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 0.75rem; font-weight: 700; flex-shrink: 0; }
-  h2.collapsible { cursor: pointer; user-select: none; }
-  h2.collapsible .chevron { margin-left: auto; color: var(--text-faint); font-size: 0.75rem; transition: transform 0.15s; }
-  h2.collapsible.collapsed { margin-bottom: 0; }
-  h2.collapsible.collapsed .chevron { transform: rotate(-90deg); }
-  #settings-body { overflow: hidden; }
-  #settings-body.collapsed { display: none; }
   h3 { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 1.6rem 0 0.7rem; }
   section {
     background: var(--surface);
@@ -228,8 +242,12 @@
     display: flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none;
     font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
   }
-  .task-log-head .chevron { margin-left: auto; color: var(--text-faint); font-size: 0.75rem; transition: transform 0.15s; }
-  .task-log-head.collapsed .chevron { transform: rotate(-90deg); }
+  .task-log-head .chevron {
+    margin-left: auto; width: 0.42rem; height: 0.42rem; flex-shrink: 0; color: var(--text-faint);
+    border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg); transition: transform 0.15s;
+  }
+  .task-log-head.collapsed .chevron { transform: translateY(2px) rotate(225deg); }
   .task-log.collapsed #log-body { display: none; }
   #log-body {
     margin: 0.4rem 0 0; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -322,7 +340,7 @@
     color: var(--text); font-family: "Avenir Next",Avenir,"Segoe UI Variable","PingFang SC","Microsoft YaHei",sans-serif; line-height: 1.55;
   }
   body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .32; background-image: linear-gradient(rgba(23,25,24,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(23,25,24,.022) 1px,transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(to bottom,black,transparent 72%); }
-  header { position: relative; align-items: center; margin-bottom: 2.2rem; padding: 0 0 1.55rem; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+  header { position: relative; align-items: center; flex-wrap: wrap; row-gap: .6rem; margin-bottom: 2.2rem; padding: 0 0 1.55rem; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
   .brand { gap: .95rem; } .brand img { width: 3rem; height: 3rem; border-radius: 12px; box-shadow: 0 10px 24px rgba(8,10,9,.18); }
   h1 { font-size: clamp(1.35rem,2vw,1.65rem); letter-spacing: -.035em; }
   #lang-toggle { padding: .55rem .8rem; border-color: var(--border); background: transparent; color: var(--text-muted); }
@@ -331,10 +349,6 @@
   section { position: relative; margin-bottom: 1.15rem; padding: clamp(1.2rem,2.4vw,1.85rem); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
   h2 { margin: 0 0 1.35rem; gap: .7rem; font-size: .97rem; letter-spacing: -.01em; }
   h2 .step { width: 1.55rem; height: 1.55rem; border: 1px solid #c8c4b9; border-radius: 8px; background: var(--primary-soft); color: var(--text); font-size: .68rem; }
-  h2.collapsible { margin-bottom: 1.35rem; } h2.collapsible.collapsed { margin-bottom: 0; }
-  h2.collapsible .chevron { width: 1.3rem; height: 1.3rem; border: 1px solid var(--border); border-radius: 50%; font-size: 0; display: inline-flex; align-items: center; justify-content: center; }
-  h2.collapsible .chevron::before { content: ""; width: .42rem; height: .42rem; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); }
-  h2.collapsible.collapsed .chevron::before { transform: translateY(2px) rotate(225deg); }
   label { margin: 1.15rem 0 .42rem; color: var(--text); font-size: .73rem; font-weight: 700; letter-spacing: .035em; }
   label:first-of-type { margin-top: 0; }
   input, select { min-height: 2.65rem; padding: .68rem .8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-strong); color: var(--text); box-shadow: 0 1px 1px rgba(35,39,33,.03); }
@@ -373,6 +387,8 @@
   .finding-card summary { gap: .6rem; padding: .55rem 0; } .finding-card .card-body { padding: .75rem .1rem .55rem; border-top-color: var(--border); font-size: .8rem; }
   .finding-card .card-body p.remediation { border-left-color: var(--accent); background: var(--accent-soft); }
   @media (max-width: 680px) {
+    .nav { order: 3; width: 100%; margin-left: 0; gap: 0; }
+    .nav-item { flex: 1 1 0; justify-content: center; padding: .45rem .4rem; font-size: .78rem; }
     body { width: 100%; padding: 1.25rem .75rem 3rem; } header { width: 100%; align-items: center; margin-bottom: 1.45rem; }
     .brand img { width: 2.65rem; height: 2.65rem; } h1 { font-size: 1.25rem; }
     .brand { min-width: 0; } #lang-toggle { min-height: 2.2rem; margin-left: auto; padding-inline: .72rem; }
@@ -401,11 +417,21 @@
       <img src="logo.png" alt="Hawkeye Code">
       <h1>Hawkeye Code</h1>
     </div>
+    <nav class="nav" id="nav">
+      <button class="nav-item" type="button" data-view="new"><span data-i18n="nav.new"></span></button>
+      <button class="nav-item" type="button" data-view="scans">
+        <span data-i18n="nav.scans"></span><span class="nav-dot" id="nav-running" hidden></span>
+      </button>
+      <button class="nav-item" type="button" data-view="settings"><span data-i18n="nav.settings"></span></button>
+    </nav>
     <button id="lang-toggle" class="small" type="button"></button>
   </header>
 
+  <main>
+    <div class="view" id="view-new">
+
   <section>
-    <h2><span class="step">1</span><span data-i18n="section1.heading"></span></h2>
+    <h2><span data-i18n="section1.heading"></span></h2>
     <div class="dropzone" id="dropzone" role="button" tabindex="0" data-i18n-aria-label="dropzone.aria">
       <input type="file" id="file-input" accept=".zip" hidden>
       <span class="dropzone-icon" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M2.5 12s3.65-5.7 9.5-5.7 9.5 5.7 9.5 5.7-3.65 5.7-9.5 5.7S2.5 12 2.5 12Z"/><circle class="iris" cx="12" cy="12" r="2.35"/></svg></span>
@@ -420,8 +446,11 @@
     <p id="status-msg" aria-live="polite"></p>
   </section>
 
+    </div>
+
+    <div class="view" id="view-scans" hidden>
   <section>
-    <h2><span class="step">2</span><span data-i18n="section2.heading"></span></h2>
+    <h2><span data-i18n="section2.heading"></span></h2>
     <table id="history-table">
       <thead><tr>
         <th data-i18n="history.thProject"></th>
@@ -446,11 +475,11 @@
     </div>
   </section>
 
+    </div>
+
+    <div class="view" id="view-settings" hidden>
   <section>
-    <h2 class="collapsible" id="settings-toggle" role="button" tabindex="0" aria-expanded="true">
-      <span class="step">3</span><span data-i18n="section3.heading"></span>
-      <span class="chevron" aria-hidden="true"></span>
-    </h2>
+    <h2><span data-i18n="section3.heading"></span></h2>
     <div id="settings-body">
       <label data-i18n="settings.configName"></label>
       <input id="config-name" data-i18n-placeholder="settings.configNamePlaceholder">
@@ -492,13 +521,15 @@
   </section>
 
   <section>
-    <h2><span class="step">4</span><span data-i18n="section4.heading"></span></h2>
+    <h2><span data-i18n="section4.heading"></span></h2>
     <p class="field-hint" data-i18n="logs.hint"></p>
     <div class="row">
       <button id="stop-server-btn" data-i18n="logs.stopBtn"></button>
     </div>
     <p id="server-msg" aria-live="polite"></p>
   </section>
+    </div>
+  </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -506,6 +537,7 @@ const $ = (id) => document.getElementById(id);
 const I18N = {
   zh: {
     langToggle: "English",
+    nav: { new: "新建扫描", scans: "扫描任务", settings: "设置" },
     section1: { heading: "上传 ZIP 文件并扫描" },
     dropzone: { prefix: "将 ZIP 文件拖到此处，或 ", link: "点击选择", aria: "选择或拖入 ZIP 文件" },
     upload: { button: "上传并开始扫描", modelLabel: "本次扫描使用的模型", useActive: "使用当前生效配置", noConfigs: "尚无已保存的 LLM 配置，请先在第 3 步添加" },
@@ -578,6 +610,7 @@ const I18N = {
   },
   en: {
     langToggle: "中文",
+    nav: { new: "New scan", scans: "Scans", settings: "Settings" },
     section1: { heading: "Upload a ZIP file and scan" },
     dropzone: { prefix: "Drag a ZIP file here, or ", link: "choose a file", aria: "Choose or drop a ZIP file" },
     upload: { button: "Upload and start scan", modelLabel: "Model for this scan", useActive: "Use the active configuration", noConfigs: "No saved LLM configurations; add one in step 3" },
@@ -703,23 +736,7 @@ $("lang-toggle").addEventListener("click", () => {
   applyStaticI18n();
   renderLogEmpty();
   loadConfigList();
-  loadHistory();
-});
-
-function setSettingsCollapsed(collapsed) {
-  $("settings-toggle").classList.toggle("collapsed", collapsed);
-  $("settings-toggle").setAttribute("aria-expanded", String(!collapsed));
-  $("settings-body").classList.toggle("collapsed", collapsed);
-}
-setSettingsCollapsed(localStorage.getItem("hawkeye-settings-collapsed") === "1");
-const toggleSettings = () => {
-  const collapsed = !$("settings-body").classList.contains("collapsed");
-  setSettingsCollapsed(collapsed);
-  localStorage.setItem("hawkeye-settings-collapsed", collapsed ? "1" : "0");
-};
-$("settings-toggle").addEventListener("click", toggleSettings);
-$("settings-toggle").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSettings(); }
+  route();
 });
 
 $("provider-template").addEventListener("change", (e) => {
@@ -924,8 +941,7 @@ $("upload-btn").addEventListener("click", async () => {
     fileInput.value = "";
     dropzoneFilename.textContent = "";
     setMsg(statusMsg, "", "");
-    await loadHistory();
-    openScanRow(scan.id);
+    navigate("scans", scan.id);
   } catch (e) {
     setMsg(statusMsg, t("msg.uploadFail")(e.message), "err");
   } finally {
@@ -1337,6 +1353,53 @@ async function renderScanDetail(project, scan) {
   }
 }
 
+// ---- views -------------------------------------------------------------
+// Three pages in one document rather than three files. The page is what
+// keeps the server alive and what owns the scan poller and the log cursor
+// (see apps/api/watchdog.py), so a real navigation would fire the closing
+// beacon, reset both, and -- mid-scan -- put the browser's own "leave site?"
+// prompt in front of every click on the nav.
+const VIEWS = ["new", "scans", "settings"];
+const DEFAULT_VIEW = "new";
+
+function parseRoute() {
+  const [view, scanId] = location.hash.replace(/^#\/?/, "").split("/");
+  return { view: VIEWS.includes(view) ? view : DEFAULT_VIEW, scanId: scanId || null };
+}
+
+function navigate(view, scanId) {
+  const next = `#/${view}${scanId ? `/${scanId}` : ""}`;
+  if (location.hash === next) route();
+  else location.hash = next;
+}
+
+async function route() {
+  const { view, scanId } = parseRoute();
+
+  for (const name of VIEWS) $(`view-${name}`).hidden = name !== view;
+  document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.view === view);
+  });
+
+  if (view !== "scans") {
+    // Nothing on screen is showing this any more, and a poller writing into
+    // a hidden panel is just traffic. Coming back re-reads it from the
+    // server, so nothing is lost by stopping here.
+    activeScanPoll = null;
+    stopElapsed();
+    stopLogPolling();
+    return;
+  }
+
+  await loadHistory();
+  if (scanId) openScanRow(scanId);
+}
+
+document.querySelectorAll(".nav-item").forEach((btn) => {
+  btn.addEventListener("click", () => navigate(btn.dataset.view));
+});
+window.addEventListener("hashchange", route);
+
 // ---- the selected task's log -------------------------------------------
 // The server's output, filtered to the scan whose row is open: GET /logs
 // tags each line with the scan that was running when it was printed.
@@ -1446,6 +1509,7 @@ async function sendHeartbeat() {
     // whose row is open, so its own view goes stale the moment another row
     // is selected.
     scanRunning = beat.scan_running === true;
+    $("nav-running").hidden = !scanRunning;
   } catch (e) {
     // A missed beat is not worth reporting: the watchdog tolerates several,
     // and if the server really is gone every other request says so louder.
@@ -1517,7 +1581,7 @@ applyStaticI18n();
 renderLogEmpty();
 loadActiveConfig();
 loadConfigList();
-loadHistory();
+route();
 </script>
 </body>
 </html>
