@@ -117,11 +117,26 @@ def run_semgrep(
         )
 
     print(f"[scan] running: {' '.join(cmd)}", file=sys.stderr)
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, **_no_console())
     if proc.returncode not in (0, 1):  # semgrep exits 1 when findings exist
         print(proc.stderr, file=sys.stderr)
         raise SystemExit(f"semgrep failed with exit code {proc.returncode}")
     return json.loads(proc.stdout)
+
+
+def _no_console() -> dict:
+    """Keeps semgrep from flashing up a console window of its own.
+
+    The server is started detached and console-less (apps/launcher.py), and
+    when a process with no console starts a console program, Windows gives
+    the child a brand new one -- a black window appearing mid-scan, right
+    after ingest, for as long as semgrep runs. Redirecting the child's
+    output is not enough on its own; the console is allocated regardless of
+    where its streams point.
+    """
+    if sys.platform != "win32":
+        return {}
+    return {"creationflags": subprocess.CREATE_NO_WINDOW}
 
 
 def relpath(target: Path, abs_path: str) -> str:

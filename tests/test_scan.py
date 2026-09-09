@@ -6,6 +6,7 @@ actual run against VulnerableApp, see MEMORY.md's note on the tagged-tuple
 taint_source format).
 """
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -379,3 +380,25 @@ class TestVerifyAll:
 
         with pytest.raises(RuntimeError, match="429"):
             verify_all(candidates, None, None, "tpl", None, "m", concurrency=3)
+
+
+class TestNoConsoleWindow:
+    """semgrep is a console program, and the server that runs it has no
+    console of its own (apps/launcher.py starts it detached). Windows hands
+    such a child a brand new console -- a black window appearing mid-scan."""
+
+    def test_windows_asks_for_no_console(self, monkeypatch):
+        from scanner import core
+
+        monkeypatch.setattr(core.sys, "platform", "win32")
+
+        assert core._no_console() == {"creationflags": subprocess.CREATE_NO_WINDOW}
+
+    @pytest.mark.parametrize("platform", ["linux", "darwin"])
+    def test_other_platforms_pass_nothing(self, monkeypatch, platform):
+        """creationflags does not exist off Windows; passing it raises."""
+        from scanner import core
+
+        monkeypatch.setattr(core.sys, "platform", platform)
+
+        assert core._no_console() == {}

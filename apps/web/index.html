@@ -1408,6 +1408,11 @@ const LOG_MAX_LINES = 2000;
 let logSeq = 0;
 let logTimer = null;
 let logScanId = null;
+// Two polls in flight read the same cursor and both append what they find,
+// which is how a line ends up in the panel twice. It happens whenever a
+// poll takes longer than the interval -- exactly when the server is busy
+// running a scan, which is the only time anyone is watching.
+let logPollInFlight = false;
 // Set once the server has been asked to stop, so nothing restarts a timer
 // against a process that is on its way out.
 let serverStopped = false;
@@ -1435,6 +1440,7 @@ const toggleTaskLog = () => {
 function watchTaskLog(scanId) {
   logScanId = scanId;
   logSeq = 0;
+  logPollInFlight = false;
   const box = $("log-body");
   if (box) box.innerHTML = "";
   renderLogEmpty();
@@ -1470,15 +1476,22 @@ function appendLogLines(lines) {
 }
 
 async function pollLogs() {
-  if (logScanId === null) return;
+  if (logScanId === null || logPollInFlight) return;
+  const watching = logScanId;
+  logPollInFlight = true;
   try {
-    const data = await api(`/logs?after=${logSeq}&scan_id=${encodeURIComponent(logScanId)}`);
+    const data = await api(`/logs?after=${logSeq}&scan_id=${encodeURIComponent(watching)}`);
+    // The panel may have moved to another task, or been reset, while this
+    // was in flight; its lines are not this one's.
+    if (logScanId !== watching) return;
     logSeq = data.next;
     if (data.entries.length) appendLogLines(data.entries.map((e) => e.text));
     else renderLogEmpty();
   } catch (e) {
     // The panel is a mirror of something that is fine without it; a failed
     // poll is not worth an error message on top of whatever already broke.
+  } finally {
+    logPollInFlight = false;
   }
 }
 
