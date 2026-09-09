@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from apps.api import models, schemas
 from apps.api.database import SessionLocal, get_db
 from apps.api.progress import registry
+from apps.api.runlog import active_scan
 from llm_gateway.config import provider_and_model_from_config
 from scanner.common import REPORTS_DIR, UPLOADS_DIR, WORKSPACES_DIR, load_json
 from scanner.pipeline import PipelineError, run_pipeline
@@ -63,6 +64,9 @@ def create_scan(payload: schemas.ScanCreate, background_tasks: BackgroundTasks, 
 
 def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
     db = SessionLocal()
+    # Everything the pipeline prints from here on is tagged with this scan,
+    # so the page can show one task its own output.
+    active_scan.set(scan_id)
     try:
         scan = db.get(models.Scan, scan_id)
         scan.started_at = datetime.now(timezone.utc)
@@ -138,6 +142,7 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         scan.finished_at = datetime.now(timezone.utc)
         db.commit()
     finally:
+        active_scan.set(None)
         registry.clear(scan_id)
         db.close()
 

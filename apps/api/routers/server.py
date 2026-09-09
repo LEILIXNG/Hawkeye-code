@@ -28,12 +28,19 @@ def health():
 
 
 @router.post("/heartbeat")
-def heartbeat():
+def heartbeat(db: Session = Depends(get_db)):
     """The open page saying it is still there. The first one also arms the
     watchdog -- before it, a server whose browser never opened would time
-    itself out while the user was still looking for the window."""
+    itself out while the user was still looking for the window.
+
+    It answers with whether anything is running, because the page cannot
+    work that out for itself: it only polls the scan whose row is open, so
+    selecting another task would otherwise leave its "leaving will interrupt
+    a scan" guard armed forever, or disarmed while a scan really is going.
+    """
     watchdog.beat()
-    return {"ok": True, "interval": IDLE_TIMEOUT_SECONDS}
+    running = db.query(models.Scan).filter(models.Scan.status.in_(RUNNING_STATUSES)).count()
+    return {"ok": True, "interval": IDLE_TIMEOUT_SECONDS, "scan_running": running > 0}
 
 
 @router.post("/page-closing")

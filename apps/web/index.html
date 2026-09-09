@@ -190,7 +190,6 @@
     animation: spin 0.7s linear infinite; flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  #scan-progress { margin-top: 0.9rem; }
   /* Named pstep-*, not step-*: `.step` is already the numbered badge in the
      <h2> section headings, and reusing it here made those badges flex to
      the full width of the heading. */
@@ -224,7 +223,14 @@
   .pbar-fill.failed { background: var(--danger); }
   .pstep-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
   .pstep-meta .pstep-elapsed:last-child { text-align: right; }
-  #logs-body.collapsed { display: none; }
+  .task-log { margin-top: 1.1rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+  .task-log-head {
+    display: flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none;
+    font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
+  }
+  .task-log-head .chevron { margin-left: auto; color: var(--text-faint); font-size: 0.75rem; transition: transform 0.15s; }
+  .task-log-head.collapsed .chevron { transform: rotate(-90deg); }
+  .task-log.collapsed #log-body { display: none; }
   #log-body {
     margin: 0.4rem 0 0; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
     background: var(--bg); color: var(--text-muted); max-height: 20rem; overflow: auto;
@@ -242,9 +248,6 @@
   .pill-failed { background: var(--danger-soft); color: var(--danger); }
   .pill-active { background: var(--success-soft); color: var(--success); }
   .pill-progress { background: var(--warning-soft); color: var(--warning); }
-  a.report-link { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.9rem; color: var(--primary); text-decoration: none; font-size: 0.85rem; font-weight: 600; }
-  a.report-link:hover { text-decoration: underline; }
-  .report-actions { display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap; }
   .detail-actions { display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap; }
   a { color: var(--primary); }
   .config-row-name { font-weight: 600; }
@@ -346,16 +349,15 @@
   .dropzone-filename { margin: .65rem 0 0; color: var(--text); font-size: .8rem; font-weight: 700; }
   #status-msg,#settings-msg { min-height: 1.35rem; margin-top: 1rem; gap: .48rem; font-size: .8rem; }
   .spinner { width: .9rem; height: .9rem; border-color: var(--border); border-top-color: var(--accent); }
-  #scan-progress { margin-top: 1.25rem; padding-top: 1.2rem; border-top: 1px solid var(--border); }
   .stepper { gap: .2rem; } .pstep { gap: .5rem; } .pstep:not(:first-child)::before { top: .7rem; background: var(--border); }
   .pstep-dot { width: 1.4rem; height: 1.4rem; border-width: 1px; background: var(--surface-strong); }
   .pstep.done::before,.pstep.active::before { background: var(--text); }
   .pstep.done .pstep-dot { background: var(--text); border-color: var(--text); color: var(--surface-strong); }
   .pstep.active .pstep-dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px rgba(223,121,0,.1); }
   .pstep-label { font-size: .68rem; } .pstep-elapsed { margin: .9rem 0 0; text-align: center; }
-  .report-actions,.detail-actions { gap: .8rem; }
-  a, a.report-link { color: var(--accent); } a.report-link { margin-top: 1.1rem; font-size: .78rem; }
-  a.report-link::after,.detail-header a::after { content: ""; display: inline-block; width: .42rem; height: .42rem; margin-left: .35rem; border-top: 1.5px solid currentColor; border-right: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
+  .detail-actions { gap: .8rem; }
+  a { color: var(--accent); }
+  .detail-header a::after { content: ""; display: inline-block; width: .42rem; height: .42rem; margin-left: .35rem; border-top: 1.5px solid currentColor; border-right: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
   table { margin-top: .15rem; font-size: .8rem; } td,th { padding: .85rem .6rem; border-bottom-color: var(--border); } th { font-size: .67rem; letter-spacing: .08em; }
   tbody tr[data-scan-id]:hover,tbody tr[data-scan-id].selected { background: var(--accent-soft); }
   .pill { padding: .28rem .6rem; letter-spacing: .025em; }
@@ -410,13 +412,7 @@
     <div class="row">
       <button id="upload-btn" class="primary" data-i18n="upload.button"></button>
     </div>
-    <div id="scan-progress" style="display:none"></div>
     <p id="status-msg" aria-live="polite"></p>
-    <div id="report-actions" class="report-actions" style="display:none">
-      <a id="report-link" class="report-link" target="_blank" data-i18n="report.link"></a>
-      <a id="export-md" class="report-link" download data-i18n="export.md"></a>
-      <a id="export-html" class="report-link" download data-i18n="export.html"></a>
-    </div>
   </section>
 
   <section>
@@ -491,18 +487,12 @@
   </section>
 
   <section>
-    <h2 class="collapsible" id="logs-toggle" role="button" tabindex="0" aria-expanded="false">
-      <span class="step">4</span><span data-i18n="section4.heading"></span>
-      <span class="chevron" aria-hidden="true"></span>
-    </h2>
-    <div id="logs-body">
-      <p class="field-hint" data-i18n="logs.hint"></p>
-      <pre id="log-body"></pre>
-      <div class="row">
-        <button id="stop-server-btn" data-i18n="logs.stopBtn"></button>
-      </div>
-      <p id="server-msg" aria-live="polite"></p>
+    <h2><span class="step">4</span><span data-i18n="section4.heading"></span></h2>
+    <p class="field-hint" data-i18n="logs.hint"></p>
+    <div class="row">
+      <button id="stop-server-btn" data-i18n="logs.stopBtn"></button>
     </div>
+    <p id="server-msg" aria-live="polite"></p>
   </section>
 
 <script>
@@ -514,7 +504,6 @@ const I18N = {
     section1: { heading: "上传 ZIP 文件并扫描" },
     dropzone: { prefix: "将 ZIP 文件拖到此处，或 ", link: "点击选择", aria: "选择或拖入 ZIP 文件" },
     upload: { button: "上传并开始扫描", modelLabel: "本次扫描使用的模型", useActive: "使用当前生效配置", noConfigs: "尚无已保存的 LLM 配置，请先在第 3 步添加" },
-    report: { link: "查看报告" },
     export: { md: "导出 Markdown", html: "导出 HTML" },
     section2: { heading: "历史扫描" },
     history: {
@@ -533,9 +522,10 @@ const I18N = {
       noFindings: "没有候选发现",
     },
     section3: { heading: "LLM 供应商设置" },
-    section4: { heading: "服务日志" },
+    section4: { heading: "服务" },
     logs: {
-      hint: "服务端自己打印的输出，和启动窗口里看到的是同一份。启动窗口可以关掉，服务不受影响；关掉本页面则会自动停止服务（扫描进行中除外）。",
+      hint: "启动窗口可以关掉，服务不受影响；关掉本页面则会自动停止服务（扫描进行中除外）。扫描的实时输出在对应任务里看。",
+      taskHeading: "本次扫描的日志",
       empty: "暂无输出",
       stopBtn: "停止服务",
       stopping: "正在停止...",
@@ -585,7 +575,6 @@ const I18N = {
     section1: { heading: "Upload a ZIP file and scan" },
     dropzone: { prefix: "Drag a ZIP file here, or ", link: "choose a file", aria: "Choose or drop a ZIP file" },
     upload: { button: "Upload and start scan", modelLabel: "Model for this scan", useActive: "Use the active configuration", noConfigs: "No saved LLM configurations; add one in step 3" },
-    report: { link: "View report" },
     export: { md: "Export Markdown", html: "Export HTML" },
     section2: { heading: "Scan history" },
     history: {
@@ -604,9 +593,10 @@ const I18N = {
       noFindings: "No candidate findings",
     },
     section3: { heading: "LLM provider settings" },
-    section4: { heading: "Server log" },
+    section4: { heading: "Server" },
     logs: {
-      hint: "What the server prints for itself — the same text the launcher window shows. That window can be closed and the server keeps running; closing this page stops it, unless a scan is still going.",
+      hint: "The launcher window can be closed and the server keeps running; closing this page stops it, unless a scan is still going. A scan's live output is under its own task.",
+      taskHeading: "Log for this scan",
       empty: "Nothing yet",
       stopBtn: "Stop server",
       stopping: "Stopping...",
@@ -903,17 +893,13 @@ dropzone.addEventListener("drop", (e) => {
 
 $("upload-btn").addEventListener("click", async () => {
   const statusMsg = $("status-msg");
-  const reportLink = $("report-link");
   const uploadBtn = $("upload-btn");
-  $("report-actions").style.display = "none";
-  $("scan-progress").style.display = "none";
   const file = $("file-input").files[0];
   if (!file) { setMsg(statusMsg, t("msg.selectZipFirst"), "err"); return; }
 
   uploadBtn.disabled = true;
   try {
     setMsg(statusMsg, t("msg.uploading"), "");
-    beginProgress();
     const form = new FormData();
     form.append("file", file);
     const project = await api("/uploads", { method: "POST", body: form });
@@ -924,21 +910,28 @@ $("upload-btn").addEventListener("click", async () => {
       body: JSON.stringify({ project_id: project.id, llm_config_id: $("scan-llm-select").value || null }),
     });
 
-    await pollScan(scan.id, statusMsg, reportLink);
-    loadHistory();
+    // Configuring a scan ends here: it becomes a row in the history list and
+    // runs there, with its stepper, clock and log under its own row. A scan
+    // started just now and one opened from the list later are the same view,
+    // which is the point -- there is no second place to watch a scan from.
     fileInput.value = "";
     dropzoneFilename.textContent = "";
+    setMsg(statusMsg, "", "");
+    await loadHistory();
+    openScanRow(scan.id);
   } catch (e) {
-    // Upload or scan creation threw, so pollScan never ran and never got to
-    // stop the clock it was going to own.
-    scanRunning = false;
-    ensureLogPolling();
-    stopElapsed();
     setMsg(statusMsg, t("msg.uploadFail")(e.message), "err");
   } finally {
     uploadBtn.disabled = false;
   }
 });
+
+function openScanRow(scanId) {
+  const row = document.querySelector(`#history-table tr[data-scan-id="${scanId}"]`);
+  if (!row) return;
+  row.click();
+  row.scrollIntoView({ block: "nearest" });
+}
 
 function statusLabel(status) {
   return t(`status.${status}`) || status;
@@ -1029,8 +1022,12 @@ function renderProgress(status, progress) {
   }).join("");
 }
 
-function startElapsed() {
-  const startedAt = Date.now();
+function startElapsed(startedAtIso) {
+  // Anchored to the scan's own start time when the server knows it, so a
+  // task opened from the history list shows how long it has really been
+  // running rather than how long this panel has been on screen.
+  const parsed = startedAtIso ? Date.parse(asUtc(startedAtIso)) : NaN;
+  const startedAt = isNaN(parsed) ? Date.now() : parsed;
   stopElapsed();
   const tick = () => {
     const el = $("step-elapsed");
@@ -1045,62 +1042,101 @@ function stopElapsed() {
   elapsedTimer = null;
 }
 
-function beginProgress() {
-  lastActiveStep = -1;
-  const box = $("scan-progress");
-  box.style.display = "block";
-  box.innerHTML = `<div class="stepper" id="stepper"></div>`
+// The progress panel and this task's own log, rendered into the detail area
+// under the history row. A running scan is a row in the list like any other
+// -- there is no separate "current scan" place on the page for it to be.
+function taskProgressHtml() {
+  return `<div class="stepper" id="stepper"></div>`
     + `<div class="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>`
     + `<div class="pstep-meta">`
     + `<span class="pstep-elapsed" id="step-elapsed"></span>`
     + `<span class="pstep-elapsed" id="step-count"></span>`
     + `<span class="pstep-elapsed" id="step-eta"></span>`
+    + `</div>`
+    + `<div class="task-log" id="task-log">`
+    + `<div class="task-log-head" id="task-log-toggle" role="button" tabindex="0" aria-expanded="true">`
+    + `<span>${t("logs.taskHeading")}</span><span class="chevron" aria-hidden="true"></span>`
+    + `</div>`
+    + `<pre id="log-body"></pre>`
     + `</div>`;
-  renderProgress("queued");
-  startElapsed();
 }
 
-async function pollScan(scanId, statusMsg, reportLink) {
+function beginTaskProgress(scan) {
+  lastActiveStep = -1;
+  $("detail-body").innerHTML = taskProgressHtml();
+  $("task-log-toggle").addEventListener("click", toggleTaskLog);
+  $("task-log-toggle").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTaskLog(); }
+  });
+  setTaskLogCollapsed(localStorage.getItem("hawkeye-task-log-collapsed") === "1");
+  renderProgress(scan.status, null);
+  startElapsed(scan.started_at);
+  watchTaskLog(scan.id);
+}
+
+function scanProgress(scan) {
+  return { done: scan.stage_done ?? 0, total: scan.stage_total ?? 0, elapsed: scan.stage_elapsed ?? 0 };
+}
+
+// One poller at a time. Selecting another row replaces the token, and the
+// loop that owned the old one returns instead of writing its status into a
+// panel that is now showing someone else's task.
+let activeScanPoll = null;
+
+async function pollScanTask(project, scan) {
+  const token = {};
+  activeScanPoll = token;
+  let current = scan;
   scanRunning = true;
   ensureLogPolling();
-  while (true) {
-    const scan = await api(`/scans/${scanId}`);
-    const label = statusLabel(scan.status);
-    renderProgress(scan.status, {
-      done: scan.stage_done ?? 0,
-      total: scan.stage_total ?? 0,
-      elapsed: scan.stage_elapsed ?? 0,
-    });
-    if (scan.status === "done") {
+
+  while (activeScanPoll === token) {
+    renderProgress(current.status, scanProgress(current));
+    updateHistoryRow(current);
+
+    if (current.status === "done" || current.status === "failed") {
       scanRunning = false;
-      ensureLogPolling();
       stopElapsed();
-      setMsg(statusMsg, label, "ok");
-      reportLink.href = `/scans/${scanId}/report.html`;
-      setExportLinks(scanId, "export-md", "export-html");
-      $("report-actions").style.display = "flex";
+      ensureLogPolling();
+      if (activeScanPoll === token) await renderScanDetail(project, current);
       return;
     }
-    if (scan.status === "failed") {
-      scanRunning = false;
-      ensureLogPolling();
-      stopElapsed();
-      setMsg(statusMsg, `${label}${scan.error_message ? `: ${localizeError(scan.error_message)}` : ""}`, "err");
-      return;
-    }
-    setMsg(statusMsg, label, "");
+
     await new Promise((r) => setTimeout(r, 2000));
+    if (activeScanPoll !== token) return;
+    try {
+      current = await api(`/scans/${scan.id}`);
+    } catch (e) {
+      // The server going away mid-scan is already reported by every other
+      // request on the page; retrying forever here would only add noise.
+      scanRunning = false;
+      stopElapsed();
+      return;
+    }
   }
+}
+
+function updateHistoryRow(scan) {
+  const row = document.querySelector(`#history-table tr[data-scan-id="${scan.id}"]`);
+  if (!row) return;
+  const cls = scan.status === "done" ? "pill-done" : scan.status === "failed" ? "pill-failed" : "pill-progress";
+  row.children[1].innerHTML = `<span class="pill ${cls}">${statusLabel(scan.status)}</span>`;
+  const title = $("detail-title");
+  if (row.classList.contains("selected") && title) {
+    title.textContent = `${title.textContent.split(" — ")[0]} — ${statusLabel(scan.status)}`;
+  }
+}
+function asUtc(iso) {
+  // The API serialises datetimes from naive UTC values, so they arrive with
+  // no offset -- and new Date() reads an offset-less string as *local* time,
+  // which silently shifts every timestamp by the viewer's own zone (8 hours
+  // here). Mark it as UTC unless it already says otherwise.
+  return /(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : iso + "Z";
 }
 
 function localTime(iso) {
   if (!iso) return "";
-  // The API serialises started_at from a naive UTC datetime, so it arrives
-  // with no offset -- and new Date() reads an offset-less string as *local*
-  // time, which silently shifts every timestamp by the viewer's own zone
-  // (8 hours here). Mark it as UTC unless it already says otherwise.
-  const stamped = /(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : iso + "Z";
-  const parsed = new Date(stamped);
+  const parsed = new Date(asUtc(iso));
   if (isNaN(parsed.getTime())) return iso;
   return parsed.toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
     year: "numeric", month: "2-digit", day: "2-digit",
@@ -1213,21 +1249,34 @@ async function selectScan(tr, project, scan) {
   document.querySelectorAll("#history-table tr.selected").forEach((el) => el.classList.remove("selected"));
   tr.classList.add("selected");
 
-  const detail = $("scan-detail");
+  // Whatever the previously selected task was doing stops here: its poller
+  // checks the token, its clock is ours to restart, and its log lines are
+  // not this task's.
+  activeScanPoll = null;
+  stopElapsed();
+  stopLogPolling();
+
+  $("scan-detail").style.display = "block";
+  $("detail-title").textContent = `${project.name} — ${statusLabel(scan.status)}`;
+
+  if (scan.status !== "done" && scan.status !== "failed") {
+    $("detail-actions-wrap").style.display = "none";
+    beginTaskProgress(scan);
+    pollScanTask(project, scan);
+    return;
+  }
+  await renderScanDetail(project, scan);
+}
+
+async function renderScanDetail(project, scan) {
   const title = $("detail-title");
   const openLink = $("detail-open-link");
   const body = $("detail-body");
-  detail.style.display = "block";
   title.textContent = `${project.name} — ${statusLabel(scan.status)}`;
 
   if (scan.status === "failed") {
     $("detail-actions-wrap").style.display = "none";
     body.innerHTML = `<p class="err" style="font-size:0.85rem">${esc(scan.error_message ? localizeError(scan.error_message) : t("detail.failedNoInfo"))}</p>`;
-    return;
-  }
-  if (scan.status !== "done") {
-    $("detail-actions-wrap").style.display = "none";
-    body.innerHTML = `<p style="font-size:0.85rem;color:var(--text-muted)"><span class="spinner"></span> ${t("detail.inProgress")(statusLabel(scan.status))}</p>`;
     return;
   }
 
@@ -1270,35 +1319,60 @@ async function selectScan(tr, project, scan) {
   }
 }
 
-// ---- server log panel -------------------------------------------------
-// Mirrors what the process prints to its own console, so the page can be
-// the only window a local run needs.
+// ---- the selected task's log -------------------------------------------
+// The server's output, filtered to the scan whose row is open: GET /logs
+// tags each line with the scan that was running when it was printed.
 const LOG_POLL_MS = 1500;
 const LOG_MAX_LINES = 2000;
 let logSeq = 0;
 let logTimer = null;
+let logScanId = null;
 // Set once the server has been asked to stop, so nothing restarts a timer
 // against a process that is on its way out.
 let serverStopped = false;
 
-function logsCollapsed() {
-  return $("logs-body").classList.contains("collapsed");
+function taskLogCollapsed() {
+  const box = $("task-log");
+  return box === null || box.classList.contains("collapsed");
 }
 
-function setLogsCollapsed(collapsed) {
-  $("logs-toggle").classList.toggle("collapsed", collapsed);
-  $("logs-toggle").setAttribute("aria-expanded", String(!collapsed));
-  $("logs-body").classList.toggle("collapsed", collapsed);
+function setTaskLogCollapsed(collapsed) {
+  const box = $("task-log");
+  if (box === null) return;
+  box.classList.toggle("collapsed", collapsed);
+  $("task-log-toggle").classList.toggle("collapsed", collapsed);
+  $("task-log-toggle").setAttribute("aria-expanded", String(!collapsed));
   ensureLogPolling();
+}
+
+const toggleTaskLog = () => {
+  const collapsed = !taskLogCollapsed();
+  setTaskLogCollapsed(collapsed);
+  localStorage.setItem("hawkeye-task-log-collapsed", collapsed ? "1" : "0");
+};
+
+function watchTaskLog(scanId) {
+  logScanId = scanId;
+  logSeq = 0;
+  const box = $("log-body");
+  if (box) box.innerHTML = "";
+  renderLogEmpty();
+  ensureLogPolling();
+}
+
+function stopLogPolling() {
+  if (logTimer !== null) { clearInterval(logTimer); logTimer = null; }
+  logScanId = null;
 }
 
 function renderLogEmpty() {
   const box = $("log-body");
-  if (!box.childElementCount) box.innerHTML = `<span class="log-empty">${t("logs.empty")}</span>`;
+  if (box && !box.childElementCount) box.innerHTML = `<span class="log-empty">${t("logs.empty")}</span>`;
 }
 
 function appendLogLines(lines) {
   const box = $("log-body");
+  if (!box) return;
   const placeholder = box.querySelector(".log-empty");
   if (placeholder) placeholder.remove();
   // Measured before the write, because appending is what makes the two
@@ -1315,8 +1389,9 @@ function appendLogLines(lines) {
 }
 
 async function pollLogs() {
+  if (logScanId === null) return;
   try {
-    const data = await api(`/logs?after=${logSeq}`);
+    const data = await api(`/logs?after=${logSeq}&scan_id=${encodeURIComponent(logScanId)}`);
     logSeq = data.next;
     if (data.entries.length) appendLogLines(data.entries.map((e) => e.text));
     else renderLogEmpty();
@@ -1326,10 +1401,10 @@ async function pollLogs() {
   }
 }
 
-// Polled only when someone is looking or a scan is producing output, so an
-// idle tab left open overnight is not asking the server anything.
+// Polled only while a task's log is on screen and open, so a page left on
+// the history list is not asking the server anything.
 function ensureLogPolling() {
-  const wanted = !serverStopped && (!logsCollapsed() || scanRunning);
+  const wanted = !serverStopped && logScanId !== null && !taskLogCollapsed();
   if (wanted && logTimer === null) {
     pollLogs();
     logTimer = setInterval(pollLogs, LOG_POLL_MS);
@@ -1338,18 +1413,6 @@ function ensureLogPolling() {
     logTimer = null;
   }
 }
-
-setLogsCollapsed(localStorage.getItem("hawkeye-logs-collapsed") !== "0");
-const toggleLogs = () => {
-  const collapsed = !logsCollapsed();
-  setLogsCollapsed(collapsed);
-  localStorage.setItem("hawkeye-logs-collapsed", collapsed ? "1" : "0");
-};
-$("logs-toggle").addEventListener("click", toggleLogs);
-$("logs-toggle").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleLogs(); }
-});
-
 // ---- keeping the server alive only while this page is open -------------
 // The server runs detached with no console of its own, so the page is its
 // window: while one is open it gets a beat, and when the last one goes the
@@ -1360,7 +1423,11 @@ let heartbeatTimer = null;
 async function sendHeartbeat() {
   if (serverStopped) return;
   try {
-    await api("/heartbeat", { method: "POST" });
+    const beat = await api("/heartbeat", { method: "POST" });
+    // The server is the authority on this: the page only polls the task
+    // whose row is open, so its own view goes stale the moment another row
+    // is selected.
+    scanRunning = beat.scan_running === true;
   } catch (e) {
     // A missed beat is not worth reporting: the watchdog tolerates several,
     // and if the server really is gone every other request says so louder.

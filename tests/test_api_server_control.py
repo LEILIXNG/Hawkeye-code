@@ -77,3 +77,21 @@ def test_heartbeat_arms_the_watchdog(client, monkeypatch):  # noqa: F811
 
 def test_page_closing_is_accepted_as_a_beacon(client):  # noqa: F811
     assert client.post("/page-closing").json() == {"ok": True}
+
+
+def test_heartbeat_reports_no_scan_running(client, monkeypatch):  # noqa: F811
+    assert client.post("/heartbeat").json()["scan_running"] is False
+
+
+def test_heartbeat_reports_a_running_scan(client, monkeypatch):  # noqa: F811
+    """The page only polls the task whose row is open, so it cannot work
+    this out for itself once another row is selected."""
+    _scan_with_status("verifying")
+
+    assert client.post("/heartbeat").json()["scan_running"] is True
+
+
+def test_a_finished_scan_does_not_count_as_running(client, monkeypatch):  # noqa: F811
+    _scan_with_status("done")
+
+    assert client.post("/heartbeat").json()["scan_running"] is False

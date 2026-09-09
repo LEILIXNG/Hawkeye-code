@@ -25,6 +25,8 @@ from typing import TextIO
 
 MAX_LINES = 2000
 
+NEWLINE = chr(10)
+
 # uvicorn sets propagate=False on "uvicorn" itself, so a handler on the root
 # logger would never see any of these.
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
@@ -44,6 +46,31 @@ SEEN_ATTRIBUTE = "_runlog_buffered"
 POLL_PATH = "/logs"
 
 
+class _ActiveScan:
+    """Which scan the pipeline is currently running, if any.
+
+    A plain module-level value rather than a context variable: the pipeline
+    is deliberately one-scan-at-a-time (scanner/pipeline.py), and the verify
+    stage fans out over a ThreadPoolExecutor whose workers inherit neither a
+    thread local nor a context.
+    """
+
+    def __init__(self) -> None:
+        self._scan_id: str | None = None
+        self._lock = Lock()
+
+    def set(self, scan_id: str | None) -> None:
+        with self._lock:
+            self._scan_id = scan_id
+
+    def get(self) -> str | None:
+        with self._lock:
+            return self._scan_id
+
+
+active_scan = _ActiveScan()
+
+
 class RunLog:
     """A bounded, monotonically numbered line buffer.
 
@@ -59,9 +86,9 @@ class RunLog:
         self._next_seq = 1
         self._pending = ""
 
-    def append(self, line: str) -> None:
+    def append(self, line: str, scan_id: str | None = None) -> None:
         with self._lock:
-            self._lines.append((self._next_seq, line))
+            self._lines.append((self._next_seq, line, scan_id))
             self._next_seq += 1
 
     def feed(self, text: str) -> None:
@@ -74,16 +101,32 @@ class RunLog:
         """
         with self._lock:
             self._pending += text
-            if "\n" not in self._pending:
+            if NEWLINE not in self._pending:
                 return
-            *complete, self._pending = self._pending.split("\n")
+            *complete, self._pending = self._pending.split(NEWLINE)
+            # Tagged with the scan that was running when the line was
+            # printed, which is what lets one task show its own output.
+            # Only the tee is tagged: uvicorn records come from request
+            # threads, and stamping a scan on an access log line would
+            # attribute someone else traffic to it.
+            scan_id = active_scan.get()
             for line in complete:
-                self._lines.append((self._next_seq, line))
+                self._lines.append((self._next_seq, line, scan_id))
                 self._next_seq += 1
 
-    def since(self, after: int) -> tuple[list[dict], int]:
+    def since(self, after: int, scan_id: str | None = None) -> tuple[list[dict], int]:
+        """Lines newer than `after`; with a scan_id, only that scan's own.
+
+        The returned high-water mark is the buffer's, not the filtered
+        set's, so a caller polling one scan does not re-walk everything
+        written for other reasons between its own lines.
+        """
         with self._lock:
-            entries = [{"seq": seq, "text": text} for seq, text in self._lines if seq > after]
+            entries = [
+                {"seq": seq, "text": text, "scan_id": tag}
+                for seq, text, tag in self._lines
+                if seq > after and (scan_id is None or tag == scan_id)
+            ]
             return entries, self._next_seq - 1
 
     def clear(self) -> None:
