@@ -45,7 +45,8 @@ class PipelineError(Exception):
     pass
 
 
-def verify_all(candidates, workspace_dir, index, template, provider, model, concurrency: int = 1):
+def verify_all(candidates, workspace_dir, index, template, provider, model, concurrency: int = 1,
+               on_progress: Callable[[int, int], None] = lambda done, total: None):
     """The verify stage, `concurrency` calls in flight at a time.
 
     Threads rather than asyncio: the work is one blocking HTTP call per
@@ -59,6 +60,10 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
     the first exception, which keeps the existing contract that one hard
     failure (a 429, say) ends the scan rather than yielding a report with
     silent holes in it.
+
+    on_progress is called with (done, total) alongside every progress line
+    printed here, and in the concurrent branch that call happens on a worker
+    thread -- whatever it writes to has to tolerate that.
     """
     def verify_one(candidate):
         code_context = build_context(workspace_dir, candidate, index)
@@ -66,11 +71,13 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
         return {**candidate, "finding": call_llm(provider, model, prompt)}
 
     total = len(candidates)
+    on_progress(0, total)
     if concurrency <= 1:
         verified = []
         for i, candidate in enumerate(candidates, 1):
             print(f"[pipeline] verifying {i}/{total}", file=sys.stderr)
             verified.append(verify_one(candidate))
+            on_progress(i, total)
         return verified
 
     print(f"[pipeline] verifying {total} candidates, {concurrency} at a time", file=sys.stderr)
@@ -83,6 +90,7 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
         with lock:
             done += 1
             print(f"[pipeline] verifying {done}/{total}", file=sys.stderr)
+            on_progress(done, total)
         return result
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -97,6 +105,7 @@ def run_pipeline(
     provider,
     model: str,
     on_status: Callable[[str], None] = lambda status: None,
+    on_progress: Callable[[int, int], None] = lambda done, total: None,
     translate: bool = True,
     concurrency: int = 1,
 ) -> dict:
@@ -135,7 +144,8 @@ def run_pipeline(
     on_status("verifying")
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
     try:
-        verified = verify_all(candidates, workspace_dir, index, template, provider, model, concurrency)
+        verified = verify_all(candidates, workspace_dir, index, template, provider, model, concurrency,
+                              on_progress=on_progress)
     except Exception as e:
         raise PipelineError(f"verify failed: {e}") from e
 
@@ -155,6 +165,7 @@ def run_pipeline(
             source = finding_language(finding)
             target = "en" if source == "zh" else "zh"
             print(f"[pipeline] translating {i}/{len(verified)} {source}->{target}", file=sys.stderr)
+            on_progress(i, len(verified))
             name = LANGUAGE_NAMES[target]
             try:
                 parsed = call_llm_cached(

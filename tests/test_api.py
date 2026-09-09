@@ -112,7 +112,8 @@ class TestProjectsAndScans:
         concurrencies = []
 
         def fake_run_pipeline(zip_path, workspace_dir, report_dir, project_name, provider, model,
-                              on_status=lambda s: None, translate=True, concurrency=1):
+                              on_status=lambda s: None, on_progress=lambda done, total: None,
+                              translate=True, concurrency=1):
             translate_flags.append(translate)
             concurrencies.append(concurrency)
             on_status("done")

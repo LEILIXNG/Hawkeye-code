@@ -13,10 +13,16 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from apps.api import runlog
 from apps.api.database import Base, SessionLocal, engine
 from apps.api.models import DEFAULT_CONCURRENCY
-from apps.api.routers import scans, settings, uploads
+from apps.api.routers import logs, scans, server, settings, uploads
+from apps.api.watchdog import watchdog
 from scanner.common import ROOT, ensure_data_dir
+
+# Before anything else prints: the tee only mirrors writes that happen after
+# it is in place, and the scanner package prints straight to sys.stderr.
+runlog.install()
 
 load_dotenv(ROOT / ".env")
 
@@ -28,7 +34,9 @@ async def lifespan(app: FastAPI):
     _ensure_scans_llm_config_id_column()
     _ensure_llm_configs_concurrency_column()
     _seed_llm_config_from_env()
+    watchdog.start()
     yield
+    watchdog.stop()
 
 
 def _ensure_scans_llm_config_id_column() -> None:
@@ -52,6 +60,8 @@ app = FastAPI(title="sast-local API", lifespan=lifespan)
 app.include_router(uploads.router)
 app.include_router(scans.router)
 app.include_router(settings.router)
+app.include_router(logs.router)
+app.include_router(server.router)
 
 
 def _ensure_llm_configs_concurrency_column() -> None:

@@ -54,7 +54,10 @@ uvicorn apps.api.main:app --port 8000
 Open `http://localhost:8000`, drag in a zip of the project, wait for the scan, read the report. Reports are saved under `data/reports/` and open straight from disk — no server needed to read one.
 
 There is a launcher for either platform that picks a free port (8000-8020), starts the
-server and opens the browser: `./start.sh` on macOS and Linux, `启动前端.cmd` on Windows.
+server and opens the browser: `./start.sh` on macOS and Linux, `start.cmd` on Windows.
+The server is started detached, so the window you launched it from can be closed
+without stopping it — use the "stop server" button under the page's log section, or
+just launch again, which reuses the instance that is already running.
 
 ## Command line
 

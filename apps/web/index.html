@@ -218,6 +218,20 @@
   .pstep.active .pstep-label { font-weight: 600; }
   .pstep.failed .pstep-label { color: var(--danger); font-weight: 600; }
   .pstep-elapsed { font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .pbar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin: 0.85rem 0 0.5rem; }
+  .pbar-fill { height: 100%; width: 0; border-radius: 999px; background: var(--primary); transition: width 0.45s ease; }
+  .pbar-fill.done { background: var(--success); }
+  .pbar-fill.failed { background: var(--danger); }
+  .pstep-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+  .pstep-meta .pstep-elapsed:last-child { text-align: right; }
+  #logs-body.collapsed { display: none; }
+  #log-body {
+    margin: 0.4rem 0 0; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text-muted); max-height: 20rem; overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  #log-body .log-empty { color: var(--text-faint); }
   table { width: 100%; border-collapse: collapse; margin-top: 0.4rem; font-size: 0.85rem; }
   td, th { text-align: left; padding: 0.5rem 0.4rem; border-bottom: 1px solid var(--border); }
   th { color: var(--text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -476,6 +490,21 @@
     </div>
   </section>
 
+  <section>
+    <h2 class="collapsible" id="logs-toggle" role="button" tabindex="0" aria-expanded="false">
+      <span class="step">4</span><span data-i18n="section4.heading"></span>
+      <span class="chevron" aria-hidden="true"></span>
+    </h2>
+    <div id="logs-body">
+      <p class="field-hint" data-i18n="logs.hint"></p>
+      <pre id="log-body"></pre>
+      <div class="row">
+        <button id="stop-server-btn" data-i18n="logs.stopBtn"></button>
+      </div>
+      <p id="server-msg" aria-live="polite"></p>
+    </div>
+  </section>
+
 <script>
 const $ = (id) => document.getElementById(id);
 
@@ -504,6 +533,16 @@ const I18N = {
       noFindings: "没有候选发现",
     },
     section3: { heading: "LLM 供应商设置" },
+    section4: { heading: "服务日志" },
+    logs: {
+      hint: "服务端自己打印的输出，和启动窗口里看到的是同一份。启动窗口可以关掉，服务不受影响；关掉本页面则会自动停止服务（扫描进行中除外）。",
+      empty: "暂无输出",
+      stopBtn: "停止服务",
+      stopping: "正在停止...",
+      stopConfirm: "还有扫描正在进行，停止服务会中断它。确定要停止吗？",
+      stopped: "服务已停止，可以关闭本页面。要再次使用请重新运行 start.cmd。",
+      stopFail: (e) => `停止失败: ${e}`,
+    },
     settings: {
       configName: "配置名称", configNamePlaceholder: "例如 我的 GLM / 备用 DeepSeek",
       template: "模板", templateCustom: "自定义", optGlm: "智谱 GLM", optQwen: "通义千问（兼容模式）",
@@ -532,6 +571,9 @@ const I18N = {
     progress: {
       steps: { ingesting: "解压", scanning: "扫描", indexing: "调用图", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
       elapsed: (clock) => `已用 ${clock}`,
+      count: (done, total) => `${done}/${total}`,
+      eta: (clock) => `预计剩余 ${clock}`,
+      etaUnknown: "预计剩余 --:--",
     },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
@@ -562,6 +604,16 @@ const I18N = {
       noFindings: "No candidate findings",
     },
     section3: { heading: "LLM provider settings" },
+    section4: { heading: "Server log" },
+    logs: {
+      hint: "What the server prints for itself — the same text the launcher window shows. That window can be closed and the server keeps running; closing this page stops it, unless a scan is still going.",
+      empty: "Nothing yet",
+      stopBtn: "Stop server",
+      stopping: "Stopping...",
+      stopConfirm: "A scan is still running and stopping the server will interrupt it. Stop anyway?",
+      stopped: "Server stopped — this page can be closed. Run start.cmd again to use it.",
+      stopFail: (e) => `Could not stop: ${e}`,
+    },
     settings: {
       configName: "Config name", configNamePlaceholder: "e.g. My GLM / Backup DeepSeek",
       template: "Template", templateCustom: "Custom", optGlm: "Zhipu GLM", optQwen: "Qwen (OpenAI-compatible)",
@@ -590,6 +642,9 @@ const I18N = {
     progress: {
       steps: { ingesting: "Extract", scanning: "Scan", indexing: "Call graph", verifying: "Verify", translating: "Translate", reporting: "Report" },
       elapsed: (clock) => `${clock} elapsed`,
+      count: (done, total) => `${done}/${total}`,
+      eta: (clock) => `${clock} left`,
+      etaUnknown: "--:-- left",
     },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
@@ -632,7 +687,11 @@ async function api(path, options) {
   // empty body -- JSON.parse("") throws, so only parse when there's
   // actually something to parse.
   const body = isJson && text ? JSON.parse(text) : null;
-  if (!resp.ok) throw new Error(body?.detail || resp.statusText);
+  if (!resp.ok) {
+    const error = new Error(body?.detail || resp.statusText);
+    error.status = resp.status;
+    throw error;
+  }
   return body;
 }
 
@@ -645,6 +704,7 @@ $("lang-toggle").addEventListener("click", () => {
   lang = lang === "zh" ? "en" : "zh";
   localStorage.setItem("hawkeye-lang", lang);
   applyStaticI18n();
+  renderLogEmpty();
   loadConfigList();
   loadHistory();
 });
@@ -871,6 +931,8 @@ $("upload-btn").addEventListener("click", async () => {
   } catch (e) {
     // Upload or scan creation threw, so pollScan never ran and never got to
     // stop the clock it was going to own.
+    scanRunning = false;
+    ensureLogPolling();
     stopElapsed();
     setMsg(statusMsg, t("msg.uploadFail")(e.message), "err");
   } finally {
@@ -889,15 +951,63 @@ function statusLabel(status) {
 // slot the reader watches stay grey for the whole scan. The status label
 // is kept in the i18n table for the CLI path, which still translates.
 const PIPELINE_STEPS = ["ingesting", "scanning", "indexing", "verifying", "reporting"];
+
+// Roughly each stage's share of a scan's wall clock, used to collapse "which
+// stage, how far into it" into the single number the bar draws. Only
+// `verifying` reports counts, so the others contribute half their slice
+// while running and all of it once passed -- the stepper above the bar stays
+// the honest answer to where the scan is, the bar just has to move.
+const STEP_WEIGHTS = { ingesting: 3, scanning: 30, indexing: 5, verifying: 57, reporting: 5 };
+const TOTAL_WEIGHT = Object.values(STEP_WEIGHTS).reduce((a, b) => a + b, 0);
+
 let lastActiveStep = -1;
 let elapsedTimer = null;
+let scanRunning = false;
 
 function formatClock(ms) {
   const total = Math.floor(ms / 1000);
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-function renderProgress(status) {
+function overallFraction(status, progress) {
+  if (status === "done") return 1;
+  const idx = PIPELINE_STEPS.indexOf(status);
+  if (idx < 0) return 0;
+  const passed = PIPELINE_STEPS.slice(0, idx).reduce((sum, step) => sum + STEP_WEIGHTS[step], 0);
+  const within = progress && progress.total > 0 ? progress.done / progress.total : 0.5;
+  return (passed + STEP_WEIGHTS[PIPELINE_STEPS[idx]] * within) / TOTAL_WEIGHT;
+}
+
+// Extrapolated from the counted stage only, not from the whole scan: the
+// stages around it report nothing, so pretending to know their remaining
+// time would be inventing a number. Held back until a few items have landed
+// -- with several verify calls in flight the first ones finish together and
+// an estimate off those alone swings wildly.
+function etaClock(progress) {
+  if (!progress || progress.total <= 0 || progress.done < 3 || !progress.elapsed) return null;
+  const remaining = (progress.elapsed / progress.done) * (progress.total - progress.done);
+  return formatClock(remaining * 1000);
+}
+
+function renderStageMeta(status, progress) {
+  const countEl = $("step-count");
+  const etaEl = $("step-eta");
+  if (!countEl || !etaEl) return;
+  const counting = progress && progress.total > 0 && status !== "done" && status !== "failed";
+  countEl.textContent = counting ? t("progress.count")(progress.done, progress.total) : "";
+  const clock = counting ? etaClock(progress) : null;
+  etaEl.textContent = counting ? (clock ? t("progress.eta")(clock) : t("progress.etaUnknown")) : "";
+}
+
+function renderProgress(status, progress) {
+  const bar = $("pbar-fill");
+  if (bar) {
+    bar.style.width = `${Math.round(overallFraction(status, progress) * 100)}%`;
+    bar.classList.toggle("done", status === "done");
+    bar.classList.toggle("failed", status === "failed");
+  }
+  renderStageMeta(status, progress);
+
   const idx = PIPELINE_STEPS.indexOf(status);
   // Remembered because "failed" does not say which stage failed -- the last
   // stage we saw running is the one that did.
@@ -939,17 +1049,31 @@ function beginProgress() {
   lastActiveStep = -1;
   const box = $("scan-progress");
   box.style.display = "block";
-  box.innerHTML = `<div class="stepper" id="stepper"></div><p class="pstep-elapsed" id="step-elapsed"></p>`;
+  box.innerHTML = `<div class="stepper" id="stepper"></div>`
+    + `<div class="pbar"><div class="pbar-fill" id="pbar-fill"></div></div>`
+    + `<div class="pstep-meta">`
+    + `<span class="pstep-elapsed" id="step-elapsed"></span>`
+    + `<span class="pstep-elapsed" id="step-count"></span>`
+    + `<span class="pstep-elapsed" id="step-eta"></span>`
+    + `</div>`;
   renderProgress("queued");
   startElapsed();
 }
 
 async function pollScan(scanId, statusMsg, reportLink) {
+  scanRunning = true;
+  ensureLogPolling();
   while (true) {
     const scan = await api(`/scans/${scanId}`);
     const label = statusLabel(scan.status);
-    renderProgress(scan.status);
+    renderProgress(scan.status, {
+      done: scan.stage_done ?? 0,
+      total: scan.stage_total ?? 0,
+      elapsed: scan.stage_elapsed ?? 0,
+    });
     if (scan.status === "done") {
+      scanRunning = false;
+      ensureLogPolling();
       stopElapsed();
       setMsg(statusMsg, label, "ok");
       reportLink.href = `/scans/${scanId}/report.html`;
@@ -958,6 +1082,8 @@ async function pollScan(scanId, statusMsg, reportLink) {
       return;
     }
     if (scan.status === "failed") {
+      scanRunning = false;
+      ensureLogPolling();
       stopElapsed();
       setMsg(statusMsg, `${label}${scan.error_message ? `: ${localizeError(scan.error_message)}` : ""}`, "err");
       return;
@@ -1144,7 +1270,166 @@ async function selectScan(tr, project, scan) {
   }
 }
 
+// ---- server log panel -------------------------------------------------
+// Mirrors what the process prints to its own console, so the page can be
+// the only window a local run needs.
+const LOG_POLL_MS = 1500;
+const LOG_MAX_LINES = 2000;
+let logSeq = 0;
+let logTimer = null;
+// Set once the server has been asked to stop, so nothing restarts a timer
+// against a process that is on its way out.
+let serverStopped = false;
+
+function logsCollapsed() {
+  return $("logs-body").classList.contains("collapsed");
+}
+
+function setLogsCollapsed(collapsed) {
+  $("logs-toggle").classList.toggle("collapsed", collapsed);
+  $("logs-toggle").setAttribute("aria-expanded", String(!collapsed));
+  $("logs-body").classList.toggle("collapsed", collapsed);
+  ensureLogPolling();
+}
+
+function renderLogEmpty() {
+  const box = $("log-body");
+  if (!box.childElementCount) box.innerHTML = `<span class="log-empty">${t("logs.empty")}</span>`;
+}
+
+function appendLogLines(lines) {
+  const box = $("log-body");
+  const placeholder = box.querySelector(".log-empty");
+  if (placeholder) placeholder.remove();
+  // Measured before the write, because appending is what makes the two
+  // numbers differ -- read it afterwards and the view is never "at the
+  // bottom" and never follows.
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  for (const line of lines) {
+    const el = document.createElement("div");
+    el.textContent = line;
+    box.appendChild(el);
+  }
+  while (box.childElementCount > LOG_MAX_LINES) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+async function pollLogs() {
+  try {
+    const data = await api(`/logs?after=${logSeq}`);
+    logSeq = data.next;
+    if (data.entries.length) appendLogLines(data.entries.map((e) => e.text));
+    else renderLogEmpty();
+  } catch (e) {
+    // The panel is a mirror of something that is fine without it; a failed
+    // poll is not worth an error message on top of whatever already broke.
+  }
+}
+
+// Polled only when someone is looking or a scan is producing output, so an
+// idle tab left open overnight is not asking the server anything.
+function ensureLogPolling() {
+  const wanted = !serverStopped && (!logsCollapsed() || scanRunning);
+  if (wanted && logTimer === null) {
+    pollLogs();
+    logTimer = setInterval(pollLogs, LOG_POLL_MS);
+  } else if (!wanted && logTimer !== null) {
+    clearInterval(logTimer);
+    logTimer = null;
+  }
+}
+
+setLogsCollapsed(localStorage.getItem("hawkeye-logs-collapsed") !== "0");
+const toggleLogs = () => {
+  const collapsed = !logsCollapsed();
+  setLogsCollapsed(collapsed);
+  localStorage.setItem("hawkeye-logs-collapsed", collapsed ? "1" : "0");
+};
+$("logs-toggle").addEventListener("click", toggleLogs);
+$("logs-toggle").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleLogs(); }
+});
+
+// ---- keeping the server alive only while this page is open -------------
+// The server runs detached with no console of its own, so the page is its
+// window: while one is open it gets a beat, and when the last one goes the
+// server stops on its own.
+const HEARTBEAT_MS = 3000;
+let heartbeatTimer = null;
+
+async function sendHeartbeat() {
+  if (serverStopped) return;
+  try {
+    await api("/heartbeat", { method: "POST" });
+  } catch (e) {
+    // A missed beat is not worth reporting: the watchdog tolerates several,
+    // and if the server really is gone every other request says so louder.
+  }
+}
+
+sendHeartbeat();
+heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_MS);
+
+// pagehide rather than unload: it is the one that fires reliably when a tab
+// is closed, and the only one that fires at all on a page the browser has
+// frozen or moved into its back/forward cache. sendBeacon because a normal
+// fetch started here is cancelled as the page goes away.
+window.addEventListener("pagehide", (event) => {
+  // A page going into the back/forward cache can come back and keep beating,
+  // so it is not a close.
+  if (event.persisted || serverStopped) return;
+  navigator.sendBeacon("/page-closing");
+});
+
+async function stopServer(force) {
+  return api(`/shutdown${force ? "?force=true" : ""}`, { method: "POST" });
+}
+
+$("stop-server-btn").addEventListener("click", async () => {
+  const msg = $("server-msg");
+  const button = $("stop-server-btn");
+  button.disabled = true;
+  setMsg(msg, t("logs.stopping"), "");
+  try {
+    try {
+      await stopServer(false);
+    } catch (e) {
+      // 409 is the server refusing while a scan is in flight. It is the one
+      // failure worth turning into a question rather than a message: the
+      // page controls this text, which beforeunload's dialog does not allow.
+      if (e.status !== 409) throw e;
+      if (!confirm(t("logs.stopConfirm"))) {
+        button.disabled = false;
+        setMsg(msg, "", "");
+        return;
+      }
+      await stopServer(true);
+    }
+  } catch (e) {
+    button.disabled = false;
+    setMsg(msg, t("logs.stopFail")(e.message), "err");
+    return;
+  }
+  serverStopped = true;
+  scanRunning = false;
+  if (heartbeatTimer !== null) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  stopElapsed();
+  ensureLogPolling();
+  setMsg(msg, t("logs.stopped"), "ok");
+});
+
+// The scan runs inside the server process this page is talking to, so
+// leaving mid-scan is worth a confirmation. The text is the browser's own --
+// beforeunload has not let a page choose its wording for years -- all this
+// controls is whether the prompt appears at all.
+window.addEventListener("beforeunload", (e) => {
+  if (!scanRunning) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+
 applyStaticI18n();
+renderLogEmpty();
 loadActiveConfig();
 loadConfigList();
 loadHistory();

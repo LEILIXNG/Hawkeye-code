@@ -1,45 +1,32 @@
 #!/usr/bin/env bash
-# The mac/Linux counterpart of 启动前端.cmd: pick a free port, open the
-# browser once the server has had a moment to bind, and run uvicorn in the
-# foreground so Ctrl-C stops it.
+# The mac/Linux counterpart of start.cmd: both hand off to apps/launcher.py,
+# which starts the server in its own session, opens the browser and exits --
+# closing this terminal does not stop it. Closing the page in the browser
+# does, and so does the page's "stop server" button.
+#
+# No "press a key to close" here, unlike start.cmd: a terminal stays put
+# after a command finishes, so the output is still on screen. It is the
+# Windows console vanishing with its script that makes a successful launch
+# look like nothing happened.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PY=python3
-command -v "$PY" >/dev/null 2>&1 || PY=python
+# command -v is a shell built-in, so nothing on PATH can shadow the check
+# itself -- the same reason start.cmd avoids where/timeout/ping.
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  echo "Hawkeye could not start: no python3 on PATH." >&2
+  echo "Install Python 3 (macOS: brew install python, Debian/Ubuntu:" >&2
+  echo "sudo apt install python3), then run this again." >&2
+  exit 1
+fi
 
-# Asked of the OS by binding, not read out of `lsof`/`ss`: a listener bound
-# to one interface does not always show up in a table scan, and a successful
-# bind is the same question uvicorn is about to ask.
-PORT=$("$PY" - <<'PYCODE'
-import socket
-
-for port in range(8000, 8021):
-    with socket.socket() as probe:
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
-            continue
-        print(port)
-        break
-else:
-    print(8000)
-PYCODE
-)
-
-# Backgrounded with a delay so the page is requested after uvicorn is
-# listening; without it the browser races the server and shows a refusal.
-(
-  sleep 3
-  url="http://localhost:${PORT}"
-  if command -v open >/dev/null 2>&1; then
-    open "$url"
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$url"
-  else
-    echo "Open ${url} in a browser."
-  fi
-) &
-
-echo "Starting Hawkeye at http://localhost:${PORT}  (Ctrl-C to stop)"
-exec "$PY" -m uvicorn apps.api.main:app --port "${PORT}"
+if ! "$PY" -m apps.launcher; then
+  echo >&2
+  echo "Hawkeye could not start." >&2
+  echo "More detail: data/launcher.log and data/server.log" >&2
+  exit 1
+fi

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from apps.api import models, schemas
 from apps.api.database import SessionLocal, get_db
+from apps.api.progress import registry
 from llm_gateway.config import provider_and_model_from_config
 from scanner.common import REPORTS_DIR, UPLOADS_DIR, WORKSPACES_DIR, load_json
 from scanner.pipeline import PipelineError, run_pipeline
@@ -76,6 +77,12 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         def on_status(status: str) -> None:
             scan.status = status
             db.commit()
+            registry.start_stage(scan_id, status)
+
+        # Called from the verify stage's worker threads, so it stays off the
+        # Session this function is using -- see apps/api/progress.py.
+        def on_progress(done: int, total: int) -> None:
+            registry.update(scan_id, done, total)
 
         zip_path = UPLOADS_DIR / f"{project_id}.zip"
         workspace_dir = WORKSPACES_DIR / scan_id
@@ -89,6 +96,7 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
             provider=provider,
             model=model,
             on_status=on_status,
+            on_progress=on_progress,
             # Off because it is a second full LLM pass over every finding,
             # and measured on this machine it costs about as much wall clock
             # as the verify stage it follows (median 8.4s vs 7.9s per call),
@@ -130,6 +138,7 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         scan.finished_at = datetime.now(timezone.utc)
         db.commit()
     finally:
+        registry.clear(scan_id)
         db.close()
 
 
@@ -173,7 +182,22 @@ def get_scan(scan_id: str, db: Session = Depends(get_db)):
     scan = db.get(models.Scan, scan_id)
     if scan is None:
         raise HTTPException(404, "scan not found")
-    return scan
+    return _with_progress(scan)
+
+
+def _with_progress(scan: models.Scan) -> schemas.ScanOut:
+    """The stored row plus whatever the in-memory registry knows about the
+    stage it is in. Absent for anything not currently running, which is why
+    the fields are optional rather than zeroed."""
+    out = schemas.ScanOut.model_validate(scan)
+    snapshot = registry.snapshot(scan.id)
+    if snapshot is None or snapshot.total <= 0:
+        return out
+    return out.model_copy(update={
+        "stage_done": snapshot.done,
+        "stage_total": snapshot.total,
+        "stage_elapsed": round(snapshot.stage_elapsed, 1),
+    })
 
 
 @router.get("/scans/{scan_id}/report", response_model=schemas.ReportOut)

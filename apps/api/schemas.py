@@ -22,6 +22,11 @@ class ScanOut(BaseModel):
     finished_at: datetime | None
     error_message: str | None
     llm_config_id: str | None
+    # Counts within the current stage, live only while the scan is running.
+    # None both before a stage reports any and for any finished scan.
+    stage_done: int | None = None
+    stage_total: int | None = None
+    stage_elapsed: float | None = None
 
     model_config = {"from_attributes": True}
 
