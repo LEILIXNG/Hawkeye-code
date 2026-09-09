@@ -42,6 +42,13 @@ def client(tmp_path, monkeypatch):
     # per suite run, until 88 of them had piled up.
     from apps.api.routers import scans as scans_router
 
+    # main.py binds SessionLocal the same way, and _fail_scans_left_running
+    # runs against it -- unpatched, a test that plants a running scan would
+    # rewrite rows in the developer's real data/db.sqlite3.
+    from apps.api import main as main_module
+
+    monkeypatch.setattr(main_module, "SessionLocal", TestSessionLocal)
+
     monkeypatch.setattr(scans_router, "UPLOADS_DIR", tmp_path / "uploads")
     monkeypatch.setattr(scans_router, "WORKSPACES_DIR", tmp_path / "workspaces")
     monkeypatch.setattr(scans_router, "REPORTS_DIR", tmp_path / "reports")
@@ -113,7 +120,7 @@ class TestProjectsAndScans:
 
         def fake_run_pipeline(zip_path, workspace_dir, report_dir, project_name, provider, model,
                               on_status=lambda s: None, on_progress=lambda done, total: None,
-                              translate=True, concurrency=1):
+                              should_cancel=lambda: False, translate=True, concurrency=1):
             translate_flags.append(translate)
             concurrencies.append(concurrency)
             on_status("done")

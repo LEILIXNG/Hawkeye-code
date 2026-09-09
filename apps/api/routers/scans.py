@@ -1,4 +1,5 @@
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -9,11 +10,12 @@ from sqlalchemy.orm import Session
 
 from apps.api import models, schemas
 from apps.api.database import SessionLocal, get_db
+from apps.api.cancel import cancels
 from apps.api.progress import registry
 from apps.api.runlog import active_scan
 from llm_gateway.config import provider_and_model_from_config
 from scanner.common import REPORTS_DIR, UPLOADS_DIR, WORKSPACES_DIR, load_json
-from scanner.pipeline import PipelineError, run_pipeline
+from scanner.pipeline import PipelineCancelled, PipelineError, run_pipeline
 from scanner.render_md import render_markdown
 from scanner.report_i18n import DEFAULT_LANG
 
@@ -88,6 +90,9 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         def on_progress(done: int, total: int) -> None:
             registry.update(scan_id, done, total)
 
+        def should_cancel() -> bool:
+            return cancels.is_requested(scan_id)
+
         zip_path = UPLOADS_DIR / f"{project_id}.zip"
         workspace_dir = WORKSPACES_DIR / scan_id
         report_dir = REPORTS_DIR / scan_id
@@ -101,6 +106,7 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
             model=model,
             on_status=on_status,
             on_progress=on_progress,
+            should_cancel=should_cancel,
             # Off because it is a second full LLM pass over every finding,
             # and measured on this machine it costs about as much wall clock
             # as the verify stage it follows (median 8.4s vs 7.9s per call),
@@ -129,6 +135,11 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         scan.status = "done"
         scan.finished_at = datetime.now(timezone.utc)
         db.commit()
+    except PipelineCancelled:
+        scan = db.get(models.Scan, scan_id)
+        scan.status = "cancelled"
+        scan.finished_at = datetime.now(timezone.utc)
+        db.commit()
     except PipelineError as e:
         scan = db.get(models.Scan, scan_id)
         scan.status = "failed"
@@ -144,6 +155,7 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
     finally:
         active_scan.set(None)
         registry.clear(scan_id)
+        cancels.clear(scan_id)
         db.close()
 
 
@@ -251,13 +263,43 @@ def _remove_scan_dir(parent: Path, scan_id: str) -> None:
     shutil.rmtree(target, ignore_errors=True)
 
 
+# How long deleting a running scan waits for the pipeline to stop. The
+# verify stage checks between candidates, so the wait is one LLM call plus
+# whatever is already in flight -- generous enough to cover a slow provider,
+# short enough that the request does not look hung.
+CANCEL_TIMEOUT_SECONDS = 30.0
+
+
+def _stop_running_scan(db: Session, scan_id: str) -> bool:
+    """Ask the pipeline to stop and wait for it to actually be done.
+
+    Deleting the row while the background task still holds it would leave
+    that task writing findings for a scan that no longer exists, and its
+    workspace and report directories behind. So the deletion waits for the
+    pipeline to reach its next checkpoint instead.
+    """
+    cancels.request(scan_id)
+    deadline = time.monotonic() + CANCEL_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        db.expire_all()  # the background task commits on its own session
+        scan = db.get(models.Scan, scan_id)
+        if scan is None or scan.status not in RUNNING_STATUSES:
+            return True
+        time.sleep(0.25)
+    return False
+
+
 @router.delete("/scans/{scan_id}", status_code=204)
 def delete_scan(scan_id: str, db: Session = Depends(get_db)):
     scan = db.get(models.Scan, scan_id)
     if scan is None:
         raise HTTPException(404, "scan not found")
     if scan.status in RUNNING_STATUSES:
-        raise HTTPException(409, f"scan is still running (status '{scan.status}')")
+        if not _stop_running_scan(db, scan_id):
+            raise HTTPException(409, f"scan did not stop within {CANCEL_TIMEOUT_SECONDS:.0f}s")
+        scan = db.get(models.Scan, scan_id)
+        if scan is None:
+            return
 
     project = scan.project
     _remove_scan_dir(WORKSPACES_DIR, scan.id)

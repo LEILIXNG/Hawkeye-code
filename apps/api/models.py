@@ -48,7 +48,7 @@ class Scan(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"))
     status: Mapped[str] = mapped_column(String, default="queued")
-    # queued|ingesting|scanning|indexing|verifying|translating|reporting|done|failed
+    # queued|ingesting|scanning|indexing|verifying|translating|reporting|done|failed|cancelled
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

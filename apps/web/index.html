@@ -266,6 +266,7 @@
   .pill-failed { background: var(--danger-soft); color: var(--danger); }
   .pill-active { background: var(--success-soft); color: var(--success); }
   .pill-progress { background: var(--warning-soft); color: var(--warning); }
+  .pill-cancelled { background: var(--border); color: var(--text-muted); }
   .risk-critical { background: var(--danger); color: #fff; }
   .risk-high { background: var(--danger-soft); color: var(--danger); }
   .risk-medium { background: var(--warning-soft); color: var(--warning); }
@@ -548,6 +549,8 @@ const I18N = {
       empty: "还没有扫描记录，上传一个 zip 试试",
       delete: "删除",
       confirmDelete: (name) => `删除「${name}」这次扫描？报告和解压出来的代码会一并删掉，无法恢复。`,
+      confirmDeleteRunning: (name) => `「${name}」还在扫描中。删除会先中断它，可能要等几秒，已经花掉的复核不会保留。确定吗？`,
+      deleting: "正在停止并删除...",
       deleteFail: (e) => `删除失败: ${e}`,
     },
     detail: {
@@ -556,6 +559,7 @@ const I18N = {
       loadFailed: (msg) => `加载报告失败: ${msg}`,
       inProgress: (status) => `扫描还在进行中(${status})，完成后回来点这一行看结果`,
       failedNoInfo: "扫描失败，没有更多信息",
+      cancelled: "这次扫描被取消了，没有生成报告。",
       noFindings: "没有候选发现",
     },
     section3: { heading: "LLM 供应商设置" },
@@ -593,8 +597,19 @@ const I18N = {
       uploading: "上传中...", uploadFail: (e) => `失败: ${e}`,
       selectedFile: (name) => `已选择: ${name}`,
     },
-    errors: { network: "无法连接到本地服务。请通过 Hawkeye 启动脚本打开页面，而不是直接打开 HTML 文件。", noApiKey: "尚未保存 LLM API 密钥，请在第 3 步测试并保存配置。", apiKeyRequired: "请输入有效的 API 密钥。" },
-    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", indexing: "构建调用图中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败" },
+    errors: {
+      network: "无法连接到本地服务。请通过 Hawkeye 启动脚本打开页面，而不是直接打开 HTML 文件。",
+      noApiKey: "尚未保存 LLM API 密钥，请在第 3 步测试并保存配置。",
+      apiKeyRequired: "请输入有效的 API 密钥。",
+      interrupted: "扫描被中断：服务在扫描过程中停止了。重新扫描一次即可。",
+      ingestFailed: (rest) => `解压失败：${rest}`,
+      scanFailed: (rest) => `Semgrep 扫描失败：${rest}`,
+      callgraphFailed: (rest) => `构建调用图失败：${rest}`,
+      verifyFailed: (rest) => `LLM 复核失败：${rest}`,
+      reportFailed: (rest) => `生成报告失败：${rest}`,
+      internal: (rest) => `内部错误：${rest}`,
+    },
+    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", indexing: "构建调用图中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败", cancelled: "已取消" },
     progress: {
       steps: { ingesting: "解压", scanning: "扫描", indexing: "调用图", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
       elapsed: (clock) => `已用 ${clock}`,
@@ -666,8 +681,19 @@ const I18N = {
       uploading: "Uploading...", uploadFail: (e) => `Failed: ${e}`,
       selectedFile: (name) => `Selected: ${name}`,
     },
-    errors: { network: "Cannot reach the local service. Open the page with the Hawkeye launcher instead of opening the HTML file directly.", noApiKey: "No LLM API key is saved. Test and save a configuration in step 3.", apiKeyRequired: "Enter a valid API key." },
-    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", indexing: "Building call graph", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed" },
+    errors: {
+      network: "Cannot reach the local service. Open the page with the Hawkeye launcher instead of opening the HTML file directly.",
+      noApiKey: "No LLM API key is saved. Test and save a configuration in step 3.",
+      apiKeyRequired: "Enter a valid API key.",
+      interrupted: "The scan was interrupted: the server stopped while it was running. Run it again.",
+      ingestFailed: (rest) => `Extracting the archive failed: ${rest}`,
+      scanFailed: (rest) => `The Semgrep scan failed: ${rest}`,
+      callgraphFailed: (rest) => `Building the call graph failed: ${rest}`,
+      verifyFailed: (rest) => `LLM verification failed: ${rest}`,
+      reportFailed: (rest) => `Rendering the report failed: ${rest}`,
+      internal: (rest) => `Internal error: ${rest}`,
+    },
+    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", indexing: "Building call graph", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed", cancelled: "Cancelled" },
     progress: {
       steps: { ingesting: "Extract", scanning: "Scan", indexing: "Call graph", verifying: "Verify", translating: "Translate", reporting: "Report" },
       elapsed: (clock) => `${clock} elapsed`,
@@ -956,6 +982,32 @@ function openScanRow(scanId) {
   row.scrollIntoView({ block: "nearest" });
 }
 
+// The server speaks one language; the reader may not. Backend messages
+// carry a fixed prefix per pipeline stage, so the prefix is translated and
+// whatever the underlying tool said is passed through untouched -- a
+// semgrep or provider error is not ours to reword.
+const ERROR_PREFIXES = [
+  ["ingest failed: ", "ingestFailed"],
+  ["scan failed: ", "scanFailed"],
+  ["call graph failed: ", "callgraphFailed"],
+  ["verify failed: ", "verifyFailed"],
+  ["report rendering failed: ", "reportFailed"],
+  ["internal error: ", "internal"],
+];
+
+// Must match INTERRUPTED_MESSAGE in apps/api/main.py.
+const INTERRUPTED_MESSAGE = "scan was interrupted: the server stopped while it was running";
+
+function localizeError(message) {
+  if (message == null) return "";
+  const text = String(message);
+  if (text === INTERRUPTED_MESSAGE) return t("errors.interrupted");
+  for (const [prefix, key] of ERROR_PREFIXES) {
+    if (text.startsWith(prefix)) return t(`errors.${key}`)(text.slice(prefix.length));
+  }
+  return text;
+}
+
 function statusLabel(status) {
   return t(`status.${status}`) || status;
 }
@@ -967,6 +1019,11 @@ function statusLabel(status) {
 // slot the reader watches stay grey for the whole scan. The status label
 // is kept in the i18n table for the CLI path, which still translates.
 const PIPELINE_STEPS = ["ingesting", "scanning", "indexing", "verifying", "reporting"];
+
+// Anything else is a scan the server is still working on. cancelled belongs
+// here: a poller that does not recognise it as an ending polls a finished
+// scan forever.
+const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"]);
 
 // Roughly each stage's share of a scan's wall clock, used to collapse "which
 // stage, how far into it" into the single number the bar draws. Only
@@ -1117,7 +1174,7 @@ async function pollScanTask(project, scan) {
     renderProgress(current.status, scanProgress(current));
     updateHistoryRow(current);
 
-    if (current.status === "done" || current.status === "failed") {
+    if (TERMINAL_STATUSES.has(current.status)) {
       scanRunning = false;
       stopElapsed();
       ensureLogPolling();
@@ -1142,7 +1199,9 @@ async function pollScanTask(project, scan) {
 function updateHistoryRow(scan) {
   const row = document.querySelector(`#history-table tr[data-scan-id="${scan.id}"]`);
   if (!row) return;
-  const cls = scan.status === "done" ? "pill-done" : scan.status === "failed" ? "pill-failed" : "pill-progress";
+  const cls = scan.status === "done" ? "pill-done"
+    : scan.status === "failed" ? "pill-failed"
+    : scan.status === "cancelled" ? "pill-cancelled" : "pill-progress";
   row.children[1].innerHTML = `<span class="pill ${cls}">${statusLabel(scan.status)}</span>`;
   const title = $("detail-title");
   if (row.classList.contains("selected") && title) {
@@ -1184,7 +1243,9 @@ async function loadHistory() {
   for (const { project, scan } of rows) {
     const tr = document.createElement("tr");
     tr.dataset.scanId = scan.id;
-    const pillClass = scan.status === "done" ? "pill-done" : scan.status === "failed" ? "pill-failed" : "pill-progress";
+    const pillClass = scan.status === "done" ? "pill-done"
+      : scan.status === "failed" ? "pill-failed"
+      : scan.status === "cancelled" ? "pill-cancelled" : "pill-progress";
     const statusPill = `<span class="pill ${pillClass}">${statusLabel(scan.status)}</span>`;
     tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td title="${esc(scan.started_at ?? "")}">${esc(localTime(scan.started_at))}</td><td>${t("history.view")}</td>`
       + `<td><button class="small danger-btn" data-delete-scan="${scan.id}">${t("history.delete")}</button></td>`;
@@ -1200,13 +1261,26 @@ async function loadHistory() {
 }
 
 async function deleteScan(project, scan) {
-  if (!confirm(t("history.confirmDelete")(project.name))) return;
+  const running = !TERMINAL_STATUSES.has(scan.status);
+  const question = running ? t("history.confirmDeleteRunning") : t("history.confirmDelete");
+  if (!confirm(question(project.name))) return;
+
   try {
+    if (running) {
+      // The server stops the pipeline first and only answers once it has,
+      // which is not instant -- say so rather than look frozen.
+      setMsg($("history-msg"), t("history.deleting"), "");
+      // Whatever this page was polling is about to stop existing.
+      activeScanPoll = null;
+      stopElapsed();
+      stopLogPolling();
+    }
     await api(`/scans/${scan.id}`, { method: "DELETE" });
     setMsg($("history-msg"), "", "");
+    $("scan-detail").style.display = "none";
     loadHistory();
   } catch (e) {
-    setMsg($("history-msg"), t("history.deleteFail")(e.message), "err");
+    setMsg($("history-msg"), t("history.deleteFail")(localizeError(e.message)), "err");
   }
 }
 
@@ -1293,7 +1367,7 @@ async function selectScan(tr, project, scan) {
   $("scan-detail").style.display = "block";
   $("detail-title").textContent = `${project.name} — ${statusLabel(scan.status)}`;
 
-  if (scan.status !== "done" && scan.status !== "failed") {
+  if (!TERMINAL_STATUSES.has(scan.status)) {
     $("detail-actions-wrap").style.display = "none";
     beginTaskProgress(scan);
     pollScanTask(project, scan);
@@ -1307,6 +1381,12 @@ async function renderScanDetail(project, scan) {
   const openLink = $("detail-open-link");
   const body = $("detail-body");
   title.textContent = `${project.name} — ${statusLabel(scan.status)}`;
+
+  if (scan.status === "cancelled") {
+    $("detail-actions-wrap").style.display = "none";
+    body.innerHTML = `<p style="font-size:0.85rem;color:var(--text-muted)">${t("detail.cancelled")}</p>`;
+    return;
+  }
 
   if (scan.status === "failed") {
     $("detail-actions-wrap").style.display = "none";

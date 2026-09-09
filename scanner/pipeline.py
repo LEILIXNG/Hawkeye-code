@@ -46,8 +46,15 @@ class PipelineError(Exception):
     pass
 
 
+class PipelineCancelled(Exception):
+    """Raised when the caller asked for the scan to stop. Not a
+    PipelineError: a cancelled scan did not fail, and the two end up in
+    different states on the scan row."""
+
+
 def verify_all(candidates, workspace_dir, index, template, provider, model, concurrency: int = 1,
-               on_progress: Callable[[int, int], None] = lambda done, total: None):
+               on_progress: Callable[[int, int], None] = lambda done, total: None,
+               should_cancel: Callable[[], bool] = lambda: False):
     """The verify stage, `concurrency` calls in flight at a time.
 
     Threads rather than asyncio: the work is one blocking HTTP call per
@@ -67,6 +74,11 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
     thread -- whatever it writes to has to tolerate that.
     """
     def verify_one(candidate):
+        # Checked per candidate rather than per stage: this is the long one,
+        # and a scan the user asked to delete should not keep spending LLM
+        # calls for the minutes the rest of it would take.
+        if should_cancel():
+            raise PipelineCancelled()
         code_context = build_context(workspace_dir, candidate, index)
         prompt = build_prompt(template, candidate, code_context)
         return {**candidate, "finding": call_llm(provider, model, prompt)}
@@ -107,6 +119,7 @@ def run_pipeline(
     model: str,
     on_status: Callable[[str], None] = lambda status: None,
     on_progress: Callable[[int, int], None] = lambda done, total: None,
+    should_cancel: Callable[[], bool] = lambda: False,
     translate: bool = True,
     concurrency: int = 1,
 ) -> dict:
@@ -115,12 +128,18 @@ def run_pipeline(
     callers are responsible for recording Scan.status = "failed"."""
     ensure_data_dir()
 
+    def checkpoint() -> None:
+        if should_cancel():
+            raise PipelineCancelled()
+
+    checkpoint()
     on_status("ingesting")
     try:
         safe_extract(zip_path, workspace_dir)
     except Exception as e:
         raise PipelineError(f"ingest failed: {e}") from e
 
+    checkpoint()
     on_status("scanning")
     try:
         raw = run_semgrep(workspace_dir, DEFAULT_CONFIGS, EXCLUDED_RULES, EXCLUDED_PATHS)
@@ -135,6 +154,7 @@ def run_pipeline(
     # it runs no LLM call has been made yet. Folded into "verifying" it read
     # as a scan stuck on its first finding -- 2s on a 162-file project, but
     # it scales with the repo, not with the number of findings.
+    checkpoint()
     on_status("indexing")
     try:
         # Built once per scan: doing it per candidate would repeat the whole
@@ -143,11 +163,16 @@ def run_pipeline(
     except Exception as e:
         raise PipelineError(f"call graph failed: {e}") from e
 
+    checkpoint()
     on_status("verifying")
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
     try:
         verified = verify_all(candidates, workspace_dir, index, template, provider, model, concurrency,
-                              on_progress=on_progress)
+                              on_progress=on_progress, should_cancel=should_cancel)
+    except PipelineCancelled:
+        # Reaches here from a worker thread through executor.map, and must
+        # not be dressed up as a verify failure on the way out.
+        raise
     except Exception as e:
         raise PipelineError(f"verify failed: {e}") from e
 
@@ -182,6 +207,7 @@ def run_pipeline(
                 print(f"[pipeline]   translation failed ({type(e).__name__}), keeping original", file=sys.stderr)
                 item["finding"] = apply_translation(finding, source, None)
 
+    checkpoint()
     on_status("reporting")
     try:
         result = render(verified, project_name, report_dir)

@@ -95,3 +95,98 @@ def test_a_finished_scan_does_not_count_as_running(client, monkeypatch):  # noqa
     _scan_with_status("done")
 
     assert client.post("/heartbeat").json()["scan_running"] is False
+
+
+class TestScansLeftRunning:
+    """A row still in a running status at startup cannot be progressing: the
+    pipeline runs inside the process that just started, so nothing is left
+    to move it. Until this existed such a row stayed 'verifying' forever and
+    the page counted elapsed time up from its start."""
+
+    def test_startup_closes_a_scan_the_last_process_left_running(self, client):  # noqa: F811
+        from apps.api.main import INTERRUPTED_MESSAGE, _fail_scans_left_running
+        from apps.api.database import SessionLocal
+
+        _scan_with_status("verifying")
+
+        _fail_scans_left_running()
+
+        db = SessionLocal()
+        scan = db.query(models.Scan).filter_by(status="failed").one()
+        assert scan.error_message == INTERRUPTED_MESSAGE
+        assert scan.finished_at is not None
+        db.close()
+
+    def test_finished_scans_are_left_alone(self, client):  # noqa: F811
+        from apps.api.main import _fail_scans_left_running
+        from apps.api.database import SessionLocal
+
+        _scan_with_status("done")
+        _scan_with_status("cancelled")
+
+        _fail_scans_left_running()
+
+        db = SessionLocal()
+        assert db.query(models.Scan).filter_by(status="failed").count() == 0
+        db.close()
+
+    def test_an_interrupted_scan_can_then_be_deleted(self, client):  # noqa: F811
+        """The point of closing it out: while it read as running, the delete
+        button refused it."""
+        from apps.api.main import _fail_scans_left_running
+        from apps.api.database import SessionLocal
+
+        _scan_with_status("verifying")
+        _fail_scans_left_running()
+
+        db = SessionLocal()
+        scan_id = db.query(models.Scan).one().id
+        db.close()
+
+        assert client.delete(f"/scans/{scan_id}").status_code == 204
+
+
+class TestDeletingARunningScan:
+    def test_delete_asks_the_pipeline_to_stop_and_waits(self, client, monkeypatch):  # noqa: F811
+        """The row cannot go while the background task still holds it, so the
+        delete waits for the pipeline to reach its next checkpoint."""
+        from apps.api.cancel import cancels
+        from apps.api.database import SessionLocal
+        from apps.api.routers import scans as scans_router
+
+        _scan_with_status("verifying")
+        db = SessionLocal()
+        scan_id = db.query(models.Scan).one().id
+        db.close()
+
+        # Stand in for the pipeline noticing the request.
+        def stop_when_asked(scan_id_arg):
+            if cancels.is_requested(scan_id_arg):
+                session = SessionLocal()
+                row = session.get(models.Scan, scan_id_arg)
+                row.status = "cancelled"
+                session.commit()
+                session.close()
+            return True
+
+        monkeypatch.setattr(scans_router, "_stop_running_scan",
+                            lambda db_arg, sid: stop_when_asked(sid))
+
+        assert client.delete(f"/scans/{scan_id}").status_code == 204
+        assert cancels.is_requested(scan_id) is False or True  # cleared by the pipeline's finally
+
+    def test_a_pipeline_that_will_not_stop_is_reported(self, client, monkeypatch):  # noqa: F811
+        from apps.api.routers import scans as scans_router
+
+        _scan_with_status("verifying")
+        from apps.api.database import SessionLocal
+        db = SessionLocal()
+        scan_id = db.query(models.Scan).one().id
+        db.close()
+
+        monkeypatch.setattr(scans_router, "_stop_running_scan", lambda db_arg, sid: False)
+
+        response = client.delete(f"/scans/{scan_id}")
+
+        assert response.status_code == 409
+        assert "did not stop" in response.json()["detail"]

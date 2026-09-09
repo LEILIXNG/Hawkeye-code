@@ -7,13 +7,16 @@ simpler than the two-terminal setup in docs/framework.md section 6 since
 apps/web has no build step to run separately.
 """
 import os
+import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from apps.api import runlog
+from apps.api import models
 from apps.api.database import Base, SessionLocal, engine
 from apps.api.models import DEFAULT_CONCURRENCY
 from apps.api.routers import logs, scans, server, settings, uploads
@@ -34,9 +37,42 @@ async def lifespan(app: FastAPI):
     _ensure_scans_llm_config_id_column()
     _ensure_llm_configs_concurrency_column()
     _seed_llm_config_from_env()
+    _fail_scans_left_running()
     watchdog.start()
     yield
     watchdog.stop()
+
+
+# What a scan interrupted by the process dying is marked with. Matched by
+# the page to show it in the reader's own language, so the two have to agree
+# on the exact string.
+INTERRUPTED_MESSAGE = "scan was interrupted: the server stopped while it was running"
+
+
+def _fail_scans_left_running() -> None:
+    """Close out scans that were running when the process last ended.
+
+    The pipeline runs inside this process, so a row still sitting in a
+    running status at startup cannot be making progress -- nothing is left
+    to move it. Until this existed such a row stayed "verifying" forever and
+    the page counted the elapsed time up from its start, which is how a scan
+    ended up showing over two hours of work that stopped after ten minutes.
+    """
+    from apps.api.routers.scans import RUNNING_STATUSES
+
+    db = SessionLocal()
+    try:
+        stuck = db.query(models.Scan).filter(models.Scan.status.in_(RUNNING_STATUSES)).all()
+        for scan in stuck:
+            scan.status = "failed"
+            scan.error_message = INTERRUPTED_MESSAGE
+            scan.finished_at = datetime.now(timezone.utc)
+        if stuck:
+            db.commit()
+            print(f"[api] closed {len(stuck)} scan(s) left running by a previous process",
+                  file=sys.stderr)
+    finally:
+        db.close()
 
 
 def _ensure_scans_llm_config_id_column() -> None:
