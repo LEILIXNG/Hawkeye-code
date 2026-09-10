@@ -6,6 +6,8 @@ HTML it hands to a fake window -- the same fake-object style already used
 for watchdog and cancellation in tests/test_watchdog.py and
 tests/test_cancel.py.
 """
+import sys
+import types
 import urllib.error
 
 import pytest
@@ -270,3 +272,98 @@ class TestProgressHtml:
 
         assert "<script>alert(1)</script>" not in html
         assert "&lt;script&gt;" in html
+
+
+class TestConsoleVisibility:
+    """start.cmd runs `python -m apps.launcher` *synchronously*, so this
+    process shares its cmd.exe parent's console for as long as run() blocks
+    -- the whole session in desktop mode, since nothing here ever prints to
+    stdout the way the old browser flow did. Left alone, that console sits
+    visibly blank for the entire session -- indistinguishable from a
+    launcher that silently did nothing. A fake `ctypes` module stands in
+    for the real one so this runs the same on every platform regardless of
+    what actually created the test process's console."""
+
+    def _fake_ctypes(self, hwnd=1234):
+        calls = []
+        windll = types.SimpleNamespace(
+            kernel32=types.SimpleNamespace(GetConsoleWindow=lambda: hwnd),
+            user32=types.SimpleNamespace(ShowWindow=lambda h, cmd: calls.append((h, cmd))),
+        )
+        return types.SimpleNamespace(windll=windll), calls
+
+    def test_off_windows_there_is_no_console_to_touch(self, monkeypatch):
+        monkeypatch.setattr(desktop.sys, "platform", "linux")
+
+        assert desktop._console_window() is None
+
+    def test_hiding_calls_sw_hide_on_the_shared_console(self, monkeypatch):
+        monkeypatch.setattr(desktop.sys, "platform", "win32")
+        fake_ctypes, calls = self._fake_ctypes()
+        monkeypatch.setitem(sys.modules, "ctypes", fake_ctypes)
+
+        desktop._set_console_visible(False)
+
+        assert calls == [(1234, 0)]
+
+    def test_showing_calls_sw_show(self, monkeypatch):
+        monkeypatch.setattr(desktop.sys, "platform", "win32")
+        fake_ctypes, calls = self._fake_ctypes()
+        monkeypatch.setitem(sys.modules, "ctypes", fake_ctypes)
+
+        desktop._set_console_visible(True)
+
+        assert calls == [(1234, 5)]
+
+    def test_a_process_with_no_console_is_left_alone(self, monkeypatch):
+        """pythonw, or an already-detached process, has no console handle at
+        all -- calling ShowWindow(0, ...) would just fail, or worse, touch
+        whatever window happens to have handle 0's neighbourhood."""
+        monkeypatch.setattr(desktop.sys, "platform", "win32")
+        fake_ctypes, calls = self._fake_ctypes(hwnd=0)
+        monkeypatch.setitem(sys.modules, "ctypes", fake_ctypes)
+
+        desktop._set_console_visible(False)
+
+        assert calls == []
+
+    def test_run_hides_the_console_for_the_duration_and_restores_it(self, monkeypatch):
+        """The actual contract run() has to keep: hidden before the window
+        can be seen, visible again no matter how the window session ends."""
+        seen = []
+        monkeypatch.setattr(desktop, "_set_console_visible", lambda visible: seen.append(visible))
+
+        class FakeEvents:
+            def __init__(self):
+                self.closing = self
+                self.shown = self
+
+            def __iadd__(self, handler):
+                return self
+
+        class FakeWindow:
+            events = FakeEvents()
+
+        fake_webview = types.SimpleNamespace(
+            create_window=lambda *a, **k: FakeWindow(),
+            start=lambda: None,
+        )
+        monkeypatch.setitem(sys.modules, "webview", fake_webview)
+
+        assert desktop.run() == 0
+        assert seen == [False, True]
+
+    def test_run_restores_the_console_even_if_webview_blows_up(self, monkeypatch):
+        seen = []
+        monkeypatch.setattr(desktop, "_set_console_visible", lambda visible: seen.append(visible))
+
+        def boom(*a, **k):
+            raise RuntimeError("no WebView2 runtime")
+
+        fake_webview = types.SimpleNamespace(create_window=boom, start=lambda: None)
+        monkeypatch.setitem(sys.modules, "webview", fake_webview)
+
+        with pytest.raises(RuntimeError):
+            desktop.run()
+
+        assert seen == [False, True]

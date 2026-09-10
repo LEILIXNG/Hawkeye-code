@@ -32,6 +32,7 @@ be tight for that case, since nobody is watching the screen when it happens.
 """
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import urllib.error
@@ -231,22 +232,60 @@ def _make_on_closing(owner: _Owner, window):
     return on_closing
 
 
+def _console_window():
+    """The win32 handle of whatever console this process is attached to, or
+    None off Windows or when there is none (already pythonw, or detached)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+
+    hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+    return hwnd or None
+
+
+def _set_console_visible(visible: bool) -> None:
+    """start.cmd runs `python -m apps.launcher` *synchronously*, so this
+    process shares its cmd.exe parent's console for as long as run() blocks
+    -- the whole session, now that the window replaces the old
+    print-and-exit browser flow. Unlike that flow, this one never writes
+    anything to stdout, so left alone that console sits there blank for the
+    entire session: not a launcher that silently did nothing, but close
+    enough to look exactly like one. Hidden here rather than avoided by
+    detaching a new process for it, which would need pythonw and so lose
+    the console entirely for the fallback browser path, where a missing
+    Python or a launcher crash still needs somewhere to print to."""
+    hwnd = _console_window()
+    if hwnd is None:
+        return
+    import ctypes
+
+    ctypes.windll.user32.ShowWindow(hwnd, 5 if visible else 0)  # SW_SHOW / SW_HIDE
+
+
 def run() -> int:
     """The desktop entry point. Blocks until the window (or the last of
     several, if more than one gets opened) closes."""
     import webview
 
-    owner = _Owner()
-    window = webview.create_window(
-        WINDOW_TITLE, html=_progress_html("正在启动 Hawkeye..."),
-        width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=WINDOW_MIN_SIZE,
-    )
-    window.events.closing += _make_on_closing(owner, window)
-    window.events.shown += lambda: threading.Thread(
-        target=_bring_up_server, args=(owner, window), daemon=True).start()
+    _set_console_visible(False)
+    try:
+        owner = _Owner()
+        window = webview.create_window(
+            WINDOW_TITLE, html=_progress_html("正在启动 Hawkeye..."),
+            width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=WINDOW_MIN_SIZE,
+        )
+        window.events.closing += _make_on_closing(owner, window)
+        window.events.shown += lambda: threading.Thread(
+            target=_bring_up_server, args=(owner, window), daemon=True).start()
 
-    webview.start()
-    return 0
+        webview.start()
+        return 0
+    finally:
+        # Whether the window closed normally or webview blew up and this is
+        # about to fall back to the browser flow -- either way, the next
+        # thing to happen wants a console again: start.cmd's own error
+        # check and pause, or the fallback flow's own print()s.
+        _set_console_visible(True)
 
 
 if __name__ == "__main__":
