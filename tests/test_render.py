@@ -261,3 +261,27 @@ class TestRiskLevel:
         # critical before low even though low was rendered first, and no
         # "high (0)" entry for a level nothing landed in.
         assert values == ["", "critical", "low"]
+
+
+class TestPublicSurface:
+    """render.py became the scanner/render/ package; the names below are what
+    pipeline.py, render_md.py, rule_stats.py and the tests import, so the
+    package boundary has to keep re-exporting every one of them."""
+
+    def test_every_public_entry_point_is_importable_from_scanner_render(self):
+        import scanner.render as render
+
+        for name in ("render", "render_html", "with_scores", "verdict_of", "build_summary",
+                     "risk_level", "vuln_type_label", "short_location", "RISK_LEVELS",
+                     "FACET_PAGE_SIZE", "FACET_EXPANDED_ROWS"):
+            assert hasattr(render, name), name
+
+    def test_the_page_is_assembled_from_the_split_modules(self):
+        from scanner.render.facets import FACET_EXPANDED_ROWS
+        from scanner.render.styles import REPORT_CSS
+
+        page = render_html([make_item()], "demo")
+        assert REPORT_CSS in page
+        assert str(FACET_EXPANDED_ROWS) in REPORT_CSS
+        assert "const I18N" in page
+        assert '<div class="facet-col">' in page
