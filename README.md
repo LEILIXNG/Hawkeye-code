@@ -49,14 +49,15 @@ Providers can also be configured in the web UI and switched per scan, without ed
 
 `./start.sh` on macOS and Linux, `start.cmd` on Windows. Either picks a free port
 (8000-8020), starts the server, and opens a real application window rather than a
-browser tab -- when `pywebview` is installed; it falls back to opening a system
-browser tab when that is missing or fails to create a window. Launching twice does
-not start a second server; it reuses the one already running.
+browser tab. Launching twice does not start a second server; it reuses the one
+already running.
 
 Drag a zip of the project onto **New scan** and it becomes a row under **Scans**, where
 its progress, elapsed time and live log live. Deleting a scan that is still running
 stops it first. Reports are saved under `data/reports/` and open straight from disk —
-no server needed to read one.
+no server needed to read one. A rate limit from the LLM endpoint (common on free
+tiers) does not fail the scan outright: candidates already judged keep their verdict,
+and the rest are marked "unverified" rather than folded into "safe" or "uncertain".
 
 This window is the server's window: closing it stops the server (with a confirmation
 first if a scan is still running); **Server** also has a button to stop it the same
@@ -68,6 +69,19 @@ To run the server yourself instead:
 ```bash
 uvicorn apps.api.main:app --port 8000
 ```
+
+### System dependencies for the native window
+
+The window comes from `pywebview`, which drives the OS's own browser engine rather
+than bundling Chromium. Where it can't be installed or can't run, the app falls back
+to opening a system browser tab automatically — nothing stops working, you just lose
+the standalone window.
+
+| Platform | Needs |
+| --- | --- |
+| Windows | Usually nothing — WebView2 ships with Win10 (1803+) / Win11 |
+| macOS | Usually nothing with the system Python; a standalone install (Homebrew/python.org) needs `pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-WebKit pyobjc-framework-security` |
+| Ubuntu/Debian | `sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1` |
 
 ## Command line
 
@@ -97,11 +111,11 @@ Skip `04_translate.py` and the report reads in whichever language the model answ
 python -m pytest tests/ -v
 ```
 
-378 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph, the rule set contract, the HTTP API. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
+434 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
 
 ## How it works
 
-- **Cross-file analysis.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph.py` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Recognises HTTP handlers, message listeners (Kafka/Rabbit/JMS), Servlet/Filter methods, and MyBatis mapper XML.
+- **Cross-file analysis.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Recognises HTTP handlers, message listeners (Kafka/Rabbit/JMS), Servlet/Filter methods, and MyBatis mapper XML (including cross-module `<mapper namespace>` resolution).
 - **Semgrep for candidates, LLM for verdicts.** Every verdict carries `reachable` / `sanitized` / `confidence` / `reasoning`, plus an exploit scenario and a concrete fix naming the line and the replacement.
 - **Dataflow-scoped.** Findings that match a static property — weak hash, missing cookie flag, disabled cert check — are filtered out by CWE before they cost a verify call.
 - **Risk from CVSS, not from the engine's own severity.** Semgrep grades everything ERROR or WARNING, which cannot separate an unauthenticated SQL injection from a weak hash. `scanner/cvss.py` maps each CWE to a v3.1 base vector and computes the score from it; reachability then grades that band, so a finding proved unreachable ends up lowest whatever it scored.

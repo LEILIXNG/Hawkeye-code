@@ -48,13 +48,13 @@ cp .env.example .env
 ## 运行
 
 macOS 和 Linux 用 `./start.sh`，Windows 双击 `start.cmd`。两者都会自动挑一个空闲端口
-(8000-8020)、启动服务，然后打开一个独立的应用窗口（不是浏览器标签页）——装了
-`pywebview` 时是这样；没装或者装不上时，会退回到用系统浏览器打开。重复启动不会起
-第二个服务，会直接复用已经在跑的那个。
+(8000-8020)、启动服务，然后打开一个独立的应用窗口（不是浏览器标签页）。重复启动不
+会起第二个服务，会直接复用已经在跑的那个。
 
 在「新建扫描」里拖入项目 zip，它会立刻变成「扫描记录」里的一行，进度、已用时间和实时
 日志都在那一行下面。删除一个还在跑的扫描会先把它停掉。报告存在 `data/reports/` 下，
-可直接双击打开，不需要起服务。
+可直接双击打开，不需要起服务。LLM 接口被限流（免费端点上常见）不会让扫描直接失败：
+已经判定的候选照常保留，来不及判的会标成「未复核」，不会跟「安全」或「不确定」混在一起。
 
 这个窗口就是服务的窗口：关掉它，服务就跟着停（扫描正在跑的话会先弹窗确认）；
 「服务」那一节里也有「停止服务」按钮，两种方式都行。扫描中途服务被关掉的话，
@@ -65,6 +65,17 @@ macOS 和 Linux 用 `./start.sh`，Windows 双击 `start.cmd`。两者都会自�
 ```bash
 uvicorn apps.api.main:app --port 8000
 ```
+
+### 原生窗口的系统依赖
+
+窗口由 `pywebview` 提供，调用系统自带的浏览器内核，不打包 Chromium。装不上或者
+用不了的话会自动退回到打开系统浏览器，功能不受影响，只是少一个独立窗口。
+
+| 平台 | 需要装什么 |
+| --- | --- |
+| Windows | 一般不需要——WebView2 是 Win10 (1803+) / Win11 自带的 |
+| macOS | 用系统自带的 Python 通常不需要；自己装的 Python（Homebrew/python.org）需要 `pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-WebKit pyobjc-framework-security` |
+| Ubuntu/Debian | `sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1` |
 
 ## 命令行
 
@@ -94,11 +105,11 @@ python scripts/04_translate.py          # 可选
 python -m pytest tests/ -v
 ```
 
-378 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、调用图、规则集契约，以及 HTTP API。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
+434 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
 
 ## 实现要点
 
-- **跨文件分析。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph.py` 反着走——从 sink 出发，顺着调用者向上、跨文件，直到抵达一个请求能进来的入口。能识别 HTTP handler、消息监听器（Kafka/Rabbit/JMS）、Servlet/Filter 方法，以及 MyBatis mapper XML。
+- **跨文件分析。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 反着走——从 sink 出发，顺着调用者向上、跨文件，直到抵达一个请求能进来的入口。能识别 HTTP handler、消息监听器（Kafka/Rabbit/JMS）、Servlet/Filter 方法，以及 MyBatis mapper XML（含跨模块的 `<mapper namespace>` 解析）。
 - **Semgrep 只出候选，LLM 下结论。** 每条判定都带 `reachable` / `sanitized` / `confidence` / `reasoning`，外加攻击场景和点名到行的具体修复方案。
 - **范围以数据流为准。** 命中代码静态属性的规则——弱哈希、Cookie 少标志位、证书校验被关掉——按 CWE 在花掉一次复核调用之前就被过滤掉。
 - **危险级别按 CVSS 定，不看引擎自己的 severity。** Semgrep 只会给 ERROR/WARNING，区分不了未授权 SQL 注入和弱哈希。`scanner/cvss.py` 把每个 CWE 映射到一条 v3.1 基准向量并按公式算分，再由可达性给这个档位定级——被判定不可达的发现无论基准分多高都落到最低档。
