@@ -16,6 +16,33 @@ def test_running_port_finds_our_own_server(monkeypatch):
     assert launcher.running_port() == 8002
 
 
+def test_running_port_checks_every_port_in_parallel_not_one_at_a_time(monkeypatch):
+    """Measured on a real machine: a closed port in this range did not fail
+    fast here -- connecting to it took the full health_of() timeout instead
+    of an instant refusal, which made the old one-port-at-a-time loop cost
+    20 wasted timeouts (8.5s) before the server was even asked to start.
+    Simulated the same way here -- a slow health_of() on every port -- so
+    this pins the fix without depending on that machine-specific slowness
+    actually reproducing under pytest."""
+    import time
+
+    monkeypatch.setattr(launcher, "PORT_RANGE", range(8000, 8010))
+    slow_timeout = 0.3
+
+    def slow_health_of(port, timeout=0.4):
+        time.sleep(slow_timeout)
+        return None
+
+    monkeypatch.setattr(launcher, "health_of", slow_health_of)
+
+    t0 = time.monotonic()
+    assert launcher.running_port() is None
+    elapsed = time.monotonic() - t0
+
+    # One timeout's worth, generously bounded -- not ten of them.
+    assert elapsed < slow_timeout * 3
+
+
 def test_a_stranger_on_the_port_is_not_reused(monkeypatch):
     """Anything can be listening on 8000; only our server answers /health
     with the marker, and adopting someone else's port would be worse than

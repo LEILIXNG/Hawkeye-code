@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -71,9 +72,21 @@ def health_of(port: int, timeout: float = 0.4) -> str | None:
 
 
 def running_port() -> int | None:
-    for port in PORT_RANGE:
-        if health_of(port) == HEALTH_MARKER:
-            return port
+    """Checked in parallel, not one port at a time: this runs before
+    anything else at startup, and a closed port does not always fail fast.
+    Measured on one real machine: 127.0.0.1 refusing a connection to an
+    unused port in this range took the full 0.4s timeout instead of an
+    instant ECONNREFUSED (something upstream of the socket -- a firewall, a
+    security agent -- was swallowing the reset rather than a Python or OS
+    default), which made this loop cost 8.5s of silence before the server
+    had even been asked to start. Sequential or parallel, the answer when a
+    server *is* running is the same; only the 20 wasted probes when one is
+    not change cost, from 20 * timeout to about one timeout's worth.
+    """
+    with ThreadPoolExecutor(max_workers=len(PORT_RANGE)) as pool:
+        for port, marker in zip(PORT_RANGE, pool.map(health_of, PORT_RANGE)):
+            if marker == HEALTH_MARKER:
+                return port
     return None
 
 

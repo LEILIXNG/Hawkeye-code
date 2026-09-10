@@ -41,6 +41,12 @@ from html import escape
 
 from apps import launcher
 
+# Set at import, not inside run(): the delay before this module even loads
+# (Python startup, or an antivirus scan of a freshly-installed package) is
+# part of what "how long did startup take" has to answer too, and this is
+# the earliest point that can be measured from.
+_PROCESS_START = time.monotonic()
+
 WINDOW_TITLE = "Hawkeye"
 WINDOW_SIZE = (1280, 860)
 WINDOW_MIN_SIZE = (900, 600)
@@ -145,10 +151,13 @@ def _bring_up_server(owner: _Owner, window) -> None:
     thing the user sees. Ends by replacing the loading page with either the
     real app (load_url) or a diagnosis (load_html), never by leaving it
     spinning forever."""
+    probe_start = time.monotonic()
     port = launcher.running_port()
+    launcher.record(f"desktop: checked for a running server in {time.monotonic() - probe_start:.1f}s")
     if port is not None:
         owner.base_url = f"http://localhost:{port}"
-        launcher.record(f"desktop: reusing the server already running at {owner.base_url}")
+        launcher.record(f"desktop: reusing the server already running at {owner.base_url} "
+                        f"({_since_start():.1f}s since this process started)")
         window.load_url(owner.base_url)
         return
 
@@ -169,13 +178,18 @@ def _bring_up_server(owner: _Owner, window) -> None:
             window.load_html(_error_html("服务器进程在启动完成前退出了。", launcher.LOG_PATH))
             return
         if launcher.health_of(port, timeout=1) == launcher.HEALTH_MARKER:
-            launcher.record(f"desktop: server up at {owner.base_url}")
+            launcher.record(f"desktop: server up at {owner.base_url} "
+                            f"({_since_start():.1f}s since this process started)")
             window.load_url(owner.base_url)
             return
         time.sleep(0.2)
 
     launcher.record(f"desktop: the server did not come up on port {port}; see {launcher.LOG_PATH}")
     window.load_html(_error_html(f"服务器在 {launcher.STARTUP_TIMEOUT_SECONDS} 秒内没有响应。", launcher.LOG_PATH))
+
+
+def _since_start() -> float:
+    return time.monotonic() - _PROCESS_START
 
 
 def _stop_server(owner: _Owner) -> bool:
@@ -275,8 +289,12 @@ def run() -> int:
             width=WINDOW_SIZE[0], height=WINDOW_SIZE[1], min_size=WINDOW_MIN_SIZE,
         )
         window.events.closing += _make_on_closing(owner, window)
-        window.events.shown += lambda: threading.Thread(
-            target=_bring_up_server, args=(owner, window), daemon=True).start()
+
+        def bootstrap():
+            launcher.record(f"desktop: window shown after {_since_start():.1f}s; bringing up the server")
+            _bring_up_server(owner, window)
+
+        window.events.shown += lambda: threading.Thread(target=bootstrap, daemon=True).start()
 
         webview.start()
         return 0
