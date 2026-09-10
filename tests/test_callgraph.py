@@ -473,6 +473,49 @@ class TestMyBatisMappers:
         assert statement.arity == ANY_ARITY
         assert [c.caller.name for c in callers_of(idx, statement)] == ["find"]
 
+    def test_a_mapper_resolves_across_modules_in_a_multi_module_workspace(self, tmp_path):
+        """The shape a real corpus actually has: an uploaded zip is 13 sibling
+        module directories, so the namespace lookup runs against every module's
+        sources at once and must land on the module that declares the
+        interface, not on a same-named class in a neighbour.
+
+        Measured on the 13-module vmscode corpus: 445 mapper statements
+        indexed, 401 of them with a resolved Java caller.
+        """
+        root = workspace(tmp_path, {
+            "service-log/src/main/resources/mapper/LogMapper.xml": self.MAPPER_XML,
+            "service-log/src/main/java/com/x/dao/LogMapper.java": self.INTERFACE_JAVA,
+            "service-log/src/main/java/com/x/web/LogController.java": self.CONTROLLER_JAVA,
+            # A neighbouring module with an unrelated same-named statement id;
+            # its callers must not be attributed to the mapper above.
+            "service-audit/src/main/java/com/y/AuditJob.java": """
+                package com.y;
+                class AuditJob { void run() { auditDao.listLogs(a, b, c); } }
+            """,
+        })
+        idx = index_workspace(root)
+        statement = next(m for m in idx.methods
+                         if m.file.endswith("LogMapper.xml") and m.name == "listLogs")
+
+        assert statement.arity == 1
+        chains = trace_to_entry_points(idx, "service-log/src/main/resources/mapper/LogMapper.xml", 9)
+        assert [c[-1].caller.name for c in chains] == ["logs"]
+
+    def test_a_statement_id_the_interface_does_not_declare_still_gets_a_node(self, tmp_path):
+        """Mappers outlive their interfaces: a statement left behind after the
+        method was renamed still has to be placeable, or a sink inside it gets
+        no enclosing method at all and the verify stage sees a bare SQL
+        fragment with no file context."""
+        root = self.mapper_workspace(tmp_path, **{"src/main/java/com/x/dao/LogMapper.java": """
+            package com.x.dao;
+            public interface LogMapper { void touch(); }
+        """})
+        idx = index_workspace(root)
+        statement = next(m for m in idx.methods if m.file.endswith(".xml") and m.name == "listLogs")
+
+        assert statement.arity == ANY_ARITY
+        assert enclosing_method(idx, "src/main/resources/mapper/LogMapper.xml", 9) is statement
+
     def test_malformed_xml_is_skipped_rather_than_raised(self, tmp_path):
         idx = index_workspace(workspace(tmp_path, {
             "mapper/Broken.xml": '<mapper namespace="com.x.A"><select id="q">unclosed',

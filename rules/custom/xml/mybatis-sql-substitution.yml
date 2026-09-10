@@ -36,11 +36,15 @@
 #   - MyBatis annotations in Java (@Select("... ${x} ...")) are not covered.
 #     The corpus has two such annotations in 804 files, so the XML form is
 #     where the risk actually lives here.
-#   - The verify stage has weaker context for this rule than for the Java
-#     ones: scanner/callgraph.py is Java-only, so an XML sink gets no call
-#     chain and the model sees the SQL fragment and the parameter name
-#     without the mapper interface behind it. Findings here should be read
-#     with that in mind until the call graph can cross into mappers.
+#   - The call graph does now cross into mappers: scanner/callgraph/mybatis.py
+#     resolves <mapper namespace> to the Java interface and <select id> to the
+#     method, so an XML sink gets the same caller chain a Java sink does.
+#     Re-measured on the same 13-module corpus: 445 mapper statements indexed,
+#     401 with a resolved Java caller, and 23 of the 25 candidates this rule
+#     produced trace all the way back to an @PostMapping handler. The two that
+#     do not are MyBatis Generator's selectByExample in SysLog(Config)Mapper,
+#     declared on the interface and called from nowhere in the corpus -- no
+#     caller to find, rather than a caller the graph cannot see.
 rules:
   - id: mybatis-string-substitution-in-sql
     languages: [generic]
