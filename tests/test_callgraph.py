@@ -634,3 +634,24 @@ class TestSelfReceiverCalls:
             """,
         }))
         assert trace_to_entry_points(idx, "mapper/M.xml", 1)
+
+
+class TestPackageSurface:
+    """callgraph.py became the scanner/callgraph/ package; context.py,
+    pipeline.py and scripts/02_verify.py all import from the old module
+    path, so every public name has to stay re-exported from it."""
+
+    def test_the_public_names_are_still_importable_from_scanner_callgraph(self):
+        import scanner.callgraph as callgraph
+
+        for name in ("Index", "Method", "Call", "Owner", "ANY_ARITY", "MAX_DEPTH",
+                     "index_workspace", "index_mybatis_mappers", "enclosing_method",
+                     "callers_of", "trace_to_entry_points"):
+            assert hasattr(callgraph, name), name
+
+    def test_the_model_module_does_not_need_tree_sitter(self):
+        # model.py is imported by every other module in the package, which is
+        # only cheap while it stays free of the parser.
+        source = (Path(__file__).resolve().parents[1] / "scanner" / "callgraph" / "model.py").read_text(
+            encoding="utf-8")
+        assert "tree_sitter" not in source
