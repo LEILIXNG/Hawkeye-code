@@ -7,7 +7,8 @@ from scanner.render.verdicts import _cwe_text, risk_level, short_location, verdi
 def _card_html(item: dict) -> str:
     finding = item.get("finding") or {}
     badge_key = filter_bucket = verdict_of(item)
-    badge_class = {"yes": "badge-yes", "no": "badge-no", "failed": "badge-failed"}.get(badge_key, "badge-uncertain")
+    badge_class = {"yes": "badge-yes", "no": "badge-no", "failed": "badge-failed",
+                   "unverified": "badge-unverified"}.get(badge_key, "badge-uncertain")
 
     rule_ids = ", ".join(item.get("rule_ids", [item.get("rule_id", "")]))
     message = " / ".join(item.get("messages", [item.get("message", "")]))
@@ -36,7 +37,8 @@ def _card_html(item: dict) -> str:
            &nbsp;·&nbsp; <strong data-i18n="card.source"></strong> {html.escape(item["source_file"])}:{item["source_line"]}</p>
         {f'<p><strong data-i18n="card.confidence"></strong> {html.escape(str(confidence))}</p>' if confidence is not None else ""}
         {_duplicates_html(item)}
-        <p><strong data-i18n="card.reasoning"></strong> {_bilingual(finding, "reasoning")}</p>
+        {f'<p class="unverified-note" data-i18n="card.unverifiedNote"></p>' if not finding
+          else f'<p><strong data-i18n="card.reasoning"></strong> {_bilingual(finding, "reasoning")}</p>'}
         {f'<p><strong data-i18n="card.exploit"></strong> {_bilingual(finding, "exploit_scenario")}</p>' if finding.get("exploit_scenario") else ""}
         {f'<p class="remediation"><strong data-i18n="card.remediation"></strong> {_bilingual(finding, "remediation")}</p>' if finding.get("remediation") else ""}
       </div>

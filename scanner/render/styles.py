@@ -123,6 +123,8 @@ REPORT_CSS = f"""
   .badge-yes {{ background: var(--danger); }}
   .badge-no {{ background: var(--success); }}
   .badge-uncertain {{ background: var(--warning); }}
+  .badge-unverified {{ background: var(--neutral); }}
+  .unverified-note {{ color: var(--text-muted); font-style: italic; }}
   .badge-failed {{ background: var(--neutral); }}
   .vuln-type {{ font-size: 0.82rem; font-weight: 650; }}
   .severity {{

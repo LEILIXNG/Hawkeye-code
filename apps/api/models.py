@@ -88,7 +88,7 @@ class Finding(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.id"))
-    reachable: Mapped[str] = mapped_column(String)  # yes|no|uncertain
+    reachable: Mapped[str] = mapped_column(String)  # yes|no|uncertain|unverified
     sanitized: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -360,8 +360,9 @@ class TestVerifyAll:
         assert sorted(calls) == sorted(c["sink_file"] for c in candidates)
 
     def test_a_failure_still_ends_the_stage(self, monkeypatch):
-        # One hard failure (a 429) must surface, not be swallowed into a
-        # report with silent holes in it.
+        # A hard failure must surface, not be swallowed into a report with
+        # silent holes in it. An exhausted rate limit is the one exception,
+        # covered by TestVerifyAllRateLimited below.
         import pytest
 
         from scanner import pipeline
@@ -372,14 +373,112 @@ class TestVerifyAll:
 
         def boom(provider, model, prompt):
             if prompt == "F3.java":
-                raise RuntimeError("429 rate limited")
+                raise RuntimeError("malformed request")
             return {"reachable": "yes"}
 
         monkeypatch.setattr(pipeline, "call_llm", boom)
         candidates = [{"sink_file": f"F{n}.java"} for n in range(6)]
 
-        with pytest.raises(RuntimeError, match="429"):
+        with pytest.raises(RuntimeError, match="malformed"):
             verify_all(candidates, None, None, "tpl", None, "m", concurrency=3)
+
+
+class TestVerifyAllRateLimited:
+    """What a scan does when the provider stops answering.
+
+    llm_gateway retries a 429 with backoff; only an exhausted ladder reaches
+    verify_all. At that point the endpoint is refusing us for longer than a
+    scan can wait, and throwing away the Semgrep work plus every verdict
+    already paid for is the worse of the two options.
+    """
+
+    def _setup(self, monkeypatch, fail_from: int):
+        from llm_gateway.rate_limit import RateLimitExhausted
+        from scanner import pipeline
+
+        monkeypatch.setattr(pipeline, "build_context", lambda ws, c, idx: "ctx")
+        monkeypatch.setattr(pipeline, "build_prompt", lambda tpl, c, ctx: c["sink_file"])
+        sent = []
+
+        def call_llm(provider, model, prompt):
+            sent.append(prompt)
+            if int(prompt[1]) >= fail_from:
+                raise RateLimitExhausted(4, RuntimeError("429 Too Many Requests"))
+            return {"reachable": "yes", "reasoning": "ok"}
+
+        monkeypatch.setattr(pipeline, "call_llm", call_llm)
+        return sent
+
+    def test_the_verdicts_already_paid_for_are_kept(self, monkeypatch):
+        from scanner.pipeline import verify_all
+
+        self._setup(monkeypatch, fail_from=3)
+        candidates = [{"sink_file": f"F{n}.java"} for n in range(6)]
+
+        verified = verify_all(candidates, None, None, "tpl", None, "m", concurrency=1)
+
+        assert len(verified) == 6
+        assert [v["sink_file"] for v in verified] == [c["sink_file"] for c in candidates]
+        assert [v.get("finding", {}).get("reachable") for v in verified[:3]] == ["yes"] * 3
+
+    def test_the_ones_never_reached_carry_no_finding_at_all(self, monkeypatch):
+        """Not `no`, not `uncertain`, not `verifier_failed` -- the report has
+        to be able to say nobody judged these."""
+        from scanner.render import build_summary, verdict_of
+        from scanner.pipeline import verify_all
+
+        self._setup(monkeypatch, fail_from=3)
+
+        verified = verify_all([{"sink_file": f"F{n}.java"} for n in range(6)],
+                              None, None, "tpl", None, "m", concurrency=1)
+
+        assert all("finding" not in v for v in verified[3:])
+        assert [verdict_of(v) for v in verified[3:]] == ["unverified"] * 3
+        summary = build_summary(verified)
+        assert (summary["unverified"], summary["reachable"], summary["uncertain"]) == (3, 3, 0)
+
+    def test_the_remaining_candidates_are_not_sent(self, monkeypatch):
+        """Each would burn the full retry ladder to arrive in the same place,
+        which on a 20-candidate scan is minutes of waiting for nothing."""
+        from scanner.pipeline import verify_all
+
+        sent = self._setup(monkeypatch, fail_from=3)
+
+        verify_all([{"sink_file": f"F{n}.java"} for n in range(9)],
+                   None, None, "tpl", None, "m", concurrency=1)
+
+        assert sent == ["F0.java", "F1.java", "F2.java", "F3.java"]
+
+    def test_the_caller_is_told_once_why_it_stopped(self, monkeypatch):
+        from scanner.pipeline import verify_all
+
+        self._setup(monkeypatch, fail_from=2)
+        reasons = []
+
+        verify_all([{"sink_file": f"F{n}.java"} for n in range(6)],
+                   None, None, "tpl", None, "m", concurrency=1, on_halt=reasons.append)
+
+        assert len(reasons) == 1
+        assert "rate limited" in reasons[0]
+
+    def test_it_holds_on_the_concurrent_path_too(self, monkeypatch):
+        """The exception arrives on a worker thread through executor.map,
+        where the old behaviour was to re-raise it out of the whole stage."""
+        from scanner.pipeline import verify_all
+
+        self._setup(monkeypatch, fail_from=4)
+        reasons = []
+
+        verified = verify_all([{"sink_file": f"F{n}.java"} for n in range(8)],
+                              None, None, "tpl", None, "m", concurrency=4, on_halt=reasons.append)
+
+        assert len(verified) == 8
+        assert len(reasons) == 1
+        assert [v["sink_file"] for v in verified] == [f"F{n}.java" for n in range(8)]
+        # Which candidates got in before the halt depends on thread timing;
+        # that the run ends with both kinds present does not.
+        assert any("finding" not in v for v in verified)
+        assert any("finding" in v for v in verified)
 
 
 class TestNoConsoleWindow:

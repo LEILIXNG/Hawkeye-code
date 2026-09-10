@@ -453,3 +453,56 @@ class TestSettings:
         cfg = client.post("/settings/llm", json={"name": "glm", "verify_model": "glm-4-flash"}).json()
         client.delete(f"/settings/llm/{cfg['id']}")
         assert client.get("/settings/llm").json() is None
+
+
+class TestUnverifiedCandidatesArePersisted:
+    """A scan halted by a rate limit still writes a report, and the
+    candidates it never reached have to survive the round trip through the
+    database as their own state -- not defaulted to "uncertain", which would
+    record a judgement nobody made."""
+
+    def test_a_candidate_with_no_finding_is_stored_as_unverified(self, client, tmp_path):
+        import json
+
+        from apps.api import database as db_module, models
+        from apps.api.routers.scans import _persist_candidates_and_findings
+
+        upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
+        report_dir = tmp_path / "reports" / "halted"
+        report_dir.mkdir(parents=True)
+        (report_dir / "report.json").write_text(json.dumps({
+            "project": "demo",
+            "summary": {"total": 2, "reachable": 1, "uncertain": 0, "not_reachable": 0,
+                        "verifier_failed": 0, "unverified": 1},
+            "findings": [
+                {"rule_id": "r", "source_file": "A.java", "source_line": 1, "sink_file": "A.java",
+                 "sink_line": 2, "dedup_key": "k1", "severity": "ERROR",
+                 "finding": {"reachable": "yes", "reasoning": "why"}},
+                {"rule_id": "r", "source_file": "B.java", "source_line": 1, "sink_file": "B.java",
+                 "sink_line": 2, "dedup_key": "k2", "severity": "ERROR"},
+            ],
+        }), encoding="utf-8")
+
+        db = db_module.SessionLocal()
+        scan = models.Scan(project_id=upload.json()["id"], status="done")
+        db.add(scan)
+        db.flush()
+        scan_id = scan.id
+
+        _persist_candidates_and_findings(db, scan_id, report_dir, "some-model")
+
+        stored = {c.sink_file: c.finding.reachable
+                  for c in db.query(models.Candidate).filter_by(scan_id=scan_id)}
+        db.close()
+
+        assert stored == {"A.java": "yes", "B.java": "unverified"}
+
+    def test_a_summary_from_before_this_existed_still_validates(self, client, tmp_path):
+        """Stored summaries are JSON columns written by whatever version ran
+        the scan, so the new key has to be optional on the way back out."""
+        from apps.api import schemas
+
+        summary = schemas.ReportSummary(total=1, reachable=1, uncertain=0, not_reachable=0,
+                                        verifier_failed=0)
+
+        assert summary.unverified == 0

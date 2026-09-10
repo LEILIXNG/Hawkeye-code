@@ -34,6 +34,7 @@ from scanner.translate import (
     parse_translation,
     validate_translation,
 )
+from llm_gateway.rate_limit import RateLimitExhausted
 from scanner.verify import call_llm, call_llm_cached
 
 DEFAULT_CONFIGS = load_default_configs()
@@ -54,7 +55,8 @@ class PipelineCancelled(Exception):
 
 def verify_all(candidates, workspace_dir, index, template, provider, model, concurrency: int = 1,
                on_progress: Callable[[int, int], None] = lambda done, total: None,
-               should_cancel: Callable[[], bool] = lambda: False):
+               should_cancel: Callable[[], bool] = lambda: False,
+               on_halt: Callable[[str], None] = lambda reason: None):
     """The verify stage, `concurrency` calls in flight at a time.
 
     Threads rather than asyncio: the work is one blocking HTTP call per
@@ -65,23 +67,45 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
     executor.map keeps the results in candidate order -- the report sorts by
     verdict later, but a scan that shuffled its findings run to run would
     make two reports of the same code impossible to diff. It also re-raises
-    the first exception, which keeps the existing contract that one hard
-    failure (a 429, say) ends the scan rather than yielding a report with
-    silent holes in it.
+    the first exception, which keeps the contract that a hard failure ends
+    the stage rather than yielding a report with silent holes in it.
+
+    A rate limit is the one failure that does not end it. llm_gateway
+    retries a 429 with backoff, and only when those are exhausted does one
+    reach here; at that point the endpoint is refusing us for longer than a
+    scan can wait, and the answer is to keep what was judged rather than
+    throw the whole scan away. Verification stops at that candidate, the
+    rest come back as the bare candidate with no `finding` key at all --
+    which verdict_of() reports as `unverified`, a state of its own and not
+    one of the three verdicts the model can return. on_halt is called once
+    with the reason.
 
     on_progress is called with (done, total) alongside every progress line
     printed here, and in the concurrent branch that call happens on a worker
     thread -- whatever it writes to has to tolerate that.
     """
+    halted: list[str] = []
+
     def verify_one(candidate):
         # Checked per candidate rather than per stage: this is the long one,
         # and a scan the user asked to delete should not keep spending LLM
         # calls for the minutes the rest of it would take.
         if should_cancel():
             raise PipelineCancelled()
+        # Once the endpoint has stopped answering, the queued candidates are
+        # drained without being sent: they would each burn the full retry
+        # ladder to arrive at the same place.
+        if halted:
+            return dict(candidate)
         code_context = build_context(workspace_dir, candidate, index)
         prompt = build_prompt(template, candidate, code_context)
-        return {**candidate, "finding": call_llm(provider, model, prompt)}
+        try:
+            return {**candidate, "finding": call_llm(provider, model, prompt)}
+        except RateLimitExhausted as e:
+            if not halted:
+                halted.append(str(e))
+                print(f"[pipeline] {e}; keeping the findings verified so far", file=sys.stderr)
+            return dict(candidate)
 
     total = len(candidates)
     on_progress(0, total)
@@ -91,6 +115,7 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
             print(f"[pipeline] verifying {i}/{total}", file=sys.stderr)
             verified.append(verify_one(candidate))
             on_progress(i, total)
+        _report_halt(halted, on_halt)
         return verified
 
     print(f"[pipeline] verifying {total} candidates, {concurrency} at a time", file=sys.stderr)
@@ -107,7 +132,14 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
         return result
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        return list(pool.map(verify_and_count, candidates))
+        verified = list(pool.map(verify_and_count, candidates))
+    _report_halt(halted, on_halt)
+    return verified
+
+
+def _report_halt(halted: list[str], on_halt) -> None:
+    if halted:
+        on_halt(halted[0])
 
 
 def run_pipeline(
@@ -124,8 +156,13 @@ def run_pipeline(
     concurrency: int = 1,
 ) -> dict:
     """Runs the full A/B/C/E/G flow for one scan. Returns the same dict
-    shape as scanner.render.render(). Raises PipelineError on failure;
-    callers are responsible for recording Scan.status = "failed"."""
+    shape as scanner.render.render(), plus `halted_reason`: None normally,
+    or why verification stopped early when the endpoint rate-limited us for
+    longer than the retries could absorb. A halted scan still produces a
+    report -- the candidates it never reached are counted as `unverified` in
+    the summary -- so it is a completed scan carrying a caveat, not a failed
+    one. Raises PipelineError on failure; callers are responsible for
+    recording Scan.status = "failed"."""
     ensure_data_dir()
 
     def checkpoint() -> None:
@@ -166,9 +203,11 @@ def run_pipeline(
     checkpoint()
     on_status("verifying")
     template = (PROMPTS_DIR / "verify_taint.md").read_text(encoding="utf-8")
+    halted: list[str] = []
     try:
         verified = verify_all(candidates, workspace_dir, index, template, provider, model, concurrency,
-                              on_progress=on_progress, should_cancel=should_cancel)
+                              on_progress=on_progress, should_cancel=should_cancel,
+                              on_halt=halted.append)
     except PipelineCancelled:
         # Reaches here from a worker thread through executor.map, and must
         # not be dressed up as a verify failure on the way out.
@@ -186,8 +225,10 @@ def run_pipeline(
         on_status("translating")
         translate_template = (PROMPTS_DIR / "translate_finding.md").read_text(encoding="utf-8")
         for i, item in enumerate(verified, 1):
-            finding = item["finding"]
-            if not needs_translation(finding):
+            finding = item.get("finding")
+            # An unverified candidate has no prose to translate, and asking
+            # for more LLM calls is the last thing a halted scan needs.
+            if not finding or not needs_translation(finding):
                 continue
             source = finding_language(finding)
             target = "en" if source == "zh" else "zh"
@@ -215,4 +256,4 @@ def run_pipeline(
         raise PipelineError(f"report rendering failed: {e}") from e
 
     on_status("done")
-    return result
+    return {**result, "halted_reason": halted[0] if halted else None}

@@ -57,7 +57,8 @@ def _summary_table(verified: list[dict], lang: str) -> list[str]:
         (_t(lang, "stats.total"), summary["total"]),
         (_t(lang, "stats.reachable"), summary["reachable"]),
         (_t(lang, "stats.safe"), summary["not_reachable"]),
-        (_t(lang, "stats.needsReview"), summary["uncertain"] + summary["verifier_failed"]),
+        (_t(lang, "stats.needsReview"),
+         summary["uncertain"] + summary["verifier_failed"] + summary.get("unverified", 0)),
     ]
     return [
         "| " + " | ".join(label for label, _ in headers) + " |",

@@ -42,6 +42,10 @@ class ReportSummary(BaseModel):
     uncertain: int
     not_reachable: int
     verifier_failed: int
+    # Candidates the verify stage never reached, because the provider
+    # rate-limited it past its retries. Defaulted rather than required: scans
+    # from before this existed have a stored summary without the key.
+    unverified: int = 0
 
 
 class ReportOut(BaseModel):

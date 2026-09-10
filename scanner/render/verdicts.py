@@ -29,14 +29,28 @@ VERDICT_SUMMARY_KEYS = {
     "no": "not_reachable",
     "uncertain": "uncertain",
     "failed": "verifier_failed",
+    "unverified": "unverified",
 }
 
 
 def verdict_of(item: dict) -> str:
-    """Which bucket one verified candidate falls into: yes / no / uncertain
-    / failed. A verifier failure is recorded in `reasoning` rather than in
-    `reachable`, so it has to be checked first."""
+    """Which bucket one candidate falls into: yes / no / uncertain / failed
+    / unverified.
+
+    Four of those are things the verify stage said. `unverified` is the
+    absence of it: a candidate with no `finding` at all, because the stage
+    never reached it -- the provider rate-limited us past the retries, or
+    the run was a raw candidate list that was never verified. It is kept
+    apart from the other three deliberately. "The model could not decide"
+    and "nobody asked the model" read the same in a report that conflates
+    them, and only one of the two is worth a human's time.
+
+    A verifier failure is recorded in `reasoning` rather than in
+    `reachable`, so it has to be checked before the verdict itself.
+    """
     finding = item.get("finding") or {}
+    if not finding:
+        return "unverified"
     if "verifier_failed" in (finding.get("reasoning") or ""):
         return "failed"
     reachable = finding.get("reachable")
@@ -44,7 +58,8 @@ def verdict_of(item: dict) -> str:
 
 
 def build_summary(verified: list[dict]) -> dict:
-    summary = {"total": len(verified), "reachable": 0, "uncertain": 0, "not_reachable": 0, "verifier_failed": 0}
+    summary = {"total": len(verified), "reachable": 0, "uncertain": 0, "not_reachable": 0,
+               "verifier_failed": 0, "unverified": 0}
     for item in verified:
         summary[VERDICT_SUMMARY_KEYS[verdict_of(item)]] += 1
     return summary
@@ -105,6 +120,9 @@ def risk_level(item: dict) -> str:
     confirmed = band(score_for(item))
     if verdict == "yes":
         return confirmed
+    # unverified lands here with uncertain and verifier_failed: all three are
+    # the absence of a verdict rather than a negative one, so all three drop
+    # one band instead of bottoming out at the "safe" floor.
     return {"critical": "high", "high": "medium", "medium": "low", "low": "low", "none": "low"}[confirmed]
 
 

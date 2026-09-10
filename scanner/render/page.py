@@ -37,6 +37,7 @@ _FILTERS = [
     ("no", "filters.no"),
     ("uncertain", "filters.uncertain"),
     ("failed", "filters.failed"),
+    ("unverified", "filters.unverified"),
 ]
 
 
@@ -47,7 +48,12 @@ def render_html(verified: list[dict], project_name: str) -> str:
     cards = "\n".join(_card_html(item) for item in ordered)
     total = len(verified)
 
-    stat_values = {**summary, "needs_review": summary["uncertain"] + summary["verifier_failed"]}
+    # A candidate nobody judged needs a human as much as one the model could
+    # not decide, so it counts toward the same tile -- but it keeps its own
+    # badge and filter, because the two need different follow-up: one is
+    # re-read, the other is re-run.
+    stat_values = {**summary,
+                   "needs_review": summary["uncertain"] + summary["verifier_failed"] + summary["unverified"]}
     stat_cards = "\n".join(
         f'<div class="stat {cls}"><div class="stat-value">{stat_values[key]}</div>'
         f'<div class="stat-label" data-i18n="{label_key}"></div></div>'

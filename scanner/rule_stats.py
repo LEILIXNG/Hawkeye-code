@@ -70,7 +70,7 @@ def aggregate(findings: list[dict]) -> list[dict]:
     stats: dict[str, dict] = {}
     for finding in findings:
         ids = rule_ids_of(finding)
-        verdict = verdict_of(finding) if finding.get("finding") else "unverified"
+        verdict = verdict_of(finding)
         for rule_id in ids:
             row = stats.setdefault(
                 rule_id,
@@ -125,7 +125,7 @@ def file_clusters(findings: list[dict]) -> list[dict]:
         path = file_of(finding)
         if not path:
             continue
-        verdict = verdict_of(finding) if finding.get("finding") else "unverified"
+        verdict = verdict_of(finding)
         for rule_id in rule_ids_of(finding):
             row = stats.setdefault(
                 (rule_id, path),

@@ -183,7 +183,11 @@ def _persist_candidates_and_findings(db: Session, scan_id: str, report_dir: Path
         finding = item.get("finding") or {}
         db.add(models.Finding(
             candidate_id=candidate.id,
-            reachable=finding.get("reachable", "uncertain"),
+            # No finding means the verify stage never reached this candidate
+            # (rate-limited past its retries). Stored as its own value rather
+            # than defaulted to "uncertain", which would record a judgement
+            # that was never made.
+            reachable=finding.get("reachable", "uncertain") if finding else "unverified",
             sanitized=finding.get("sanitized"),
             confidence=finding.get("confidence"),
             reasoning=finding.get("reasoning"),

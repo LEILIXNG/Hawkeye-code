@@ -311,6 +311,8 @@
   .badge-yes { background: var(--danger); }
   .badge-no { background: var(--success); }
   .badge-uncertain { background: var(--warning); }
+  .badge-unverified { background: var(--neutral); }
+  .unverified-note { color: var(--text-muted); font-style: italic; }
   .badge-failed { background: var(--text-muted); }
   .finding-location { font-family: ui-monospace, monospace; font-size: 0.8rem; }
   .finding-rule { font-size: 0.75rem; color: var(--text-faint); margin-left: auto; }
@@ -617,11 +619,12 @@ const I18N = {
       eta: (clock) => `预计剩余 ${clock}`,
       etaUnknown: "预计剩余 --:--",
     },
-    reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
+    reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败", unverified: "未复核" },
     risk: { critical: "致命", high: "高危", medium: "中危", low: "低危" },
-    filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败" },
+    filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败", unverified: "未复核" },
     stats: { reachable: "可达漏洞", safe: "安全数量", needsReview: "需要人工复查" },
-    card: { rule: "规则说明：", source: "来源：", confidence: "置信度：", reasoning: "判断依据：", exploit: "攻击场景：", remediation: "修复建议：" },
+    card: { rule: "规则说明：", source: "来源：", confidence: "置信度：", reasoning: "判断依据：", exploit: "攻击场景：", remediation: "修复建议：",
+            unverifiedNote: "这条候选没有经过 LLM 复核 —— 复核阶段因为接口限流提前结束了。它既不是安全的，也不是不确定的，只是还没有人判断过。" },
   },
   en: {
     langToggle: "中文",
@@ -701,11 +704,12 @@ const I18N = {
       eta: (clock) => `${clock} left`,
       etaUnknown: "--:-- left",
     },
-    reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed" },
+    reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed", unverified: "Not verified" },
     risk: { critical: "Critical", high: "High", medium: "Medium", low: "Low" },
-    filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed" },
+    filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed", unverified: "Not verified" },
     stats: { reachable: "Reachable", safe: "Safe count", needsReview: "Needs manual review" },
-    card: { rule: "Rule:", source: "Source:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:", remediation: "Remediation:" },
+    card: { rule: "Rule:", source: "Source:", confidence: "Confidence:", reasoning: "Reasoning:", exploit: "Exploit scenario:", remediation: "Remediation:",
+            unverifiedNote: "This candidate was never verified -- the verify stage stopped early because the provider rate-limited it. It is not safe and not uncertain, just unjudged." },
   },
 };
 
@@ -1306,11 +1310,16 @@ function riskPill(item) {
 
 function findingCardHtml(item) {
   const finding = item.finding || {};
+  // No finding at all means the verify stage never reached this candidate --
+  // its own bucket, kept apart from "the model was unsure". Mirrors
+  // scanner/render/verdicts.py's verdict_of().
+  const unverified = !finding.reachable && !finding.reasoning;
   const reachable = finding.reachable || "uncertain";
   const isFailed = (finding.reasoning || "").includes("verifier_failed");
-  const bucket = isFailed ? "failed" : reachable;
-  const badgeClass = isFailed ? "badge-failed" : { yes: "badge-yes", no: "badge-no" }[reachable] || "badge-uncertain";
-  const badgeLabel = isFailed ? t("reachable.failed") : (t(`reachable.${reachable}`) || reachable);
+  const bucket = unverified ? "unverified" : isFailed ? "failed" : reachable;
+  const badgeClass = unverified ? "badge-unverified"
+    : isFailed ? "badge-failed" : { yes: "badge-yes", no: "badge-no" }[reachable] || "badge-uncertain";
+  const badgeLabel = t(`reachable.${bucket}`) || bucket;
   const ruleIds = (item.rule_ids || [item.rule_id || ""]).join(", ");
   const messages = (item.messages || [item.message || ""]).join(" / ");
   // Both languages of an LLM field, swapped by applyStaticI18n() the same
@@ -1341,7 +1350,8 @@ function findingCardHtml(item) {
         <p><strong>${t("card.rule")}</strong> ${esc(messages)}</p>
         <p><strong>CWE:</strong> ${esc(item.cwe || "-")} &nbsp;·&nbsp; <strong>${t("card.source")}</strong> ${esc(item.source_file)}:${esc(item.source_line)}</p>
         ${confidence}
-        <p><strong>${t("card.reasoning")}</strong> ${bilingual("reasoning")}</p>
+        ${unverified ? `<p class="unverified-note">${t("card.unverifiedNote")}</p>`
+                     : `<p><strong>${t("card.reasoning")}</strong> ${bilingual("reasoning")}</p>`}
         ${exploit}
         ${remediation}
       </div>
@@ -1401,13 +1411,13 @@ async function renderScanDetail(project, scan) {
   try {
     const report = await api(`/scans/${scan.id}/report.json`);
     const s = report.summary;
-    const needsReview = s.uncertain + s.verifier_failed;
+    const needsReview = s.uncertain + s.verifier_failed + (s.unverified || 0);
     const statHtml = [
       [s.reachable, "stats.reachable", "stat-yes"],
       [s.not_reachable, "stats.safe", "stat-no"],
       [needsReview, "stats.needsReview", "stat-uncertain"],
     ].map(([value, labelKey, cls]) => `<span class="stat-mini ${cls}"><b>${value}</b>${t(labelKey)}</span>`).join("");
-    const filterHtml = ["all", "yes", "no", "uncertain", "failed"].map((key, i) =>
+    const filterHtml = ["all", "yes", "no", "uncertain", "failed", "unverified"].map((key, i) =>
       `<button class="filter-btn${i === 0 ? " active" : ""}" data-filter="${key}">${t(`filters.${key}`)}</button>`).join("");
     const cardsHtml = report.findings.length
       ? report.findings.map(findingCardHtml).join("")

@@ -51,7 +51,20 @@ class TestBuildSummary:
             "uncertain": 1,
             "not_reachable": 1,
             "verifier_failed": 1,
+            "unverified": 0,
         }
+
+    def test_a_candidate_with_no_finding_counts_as_unverified(self):
+        """Not as uncertain: the verify stage never reached it, and a report
+        that files those under "the model was unsure" is claiming a judgement
+        nobody made."""
+        item = make_item()
+        del item["finding"]
+
+        summary = build_summary([item, make_item(reachable="yes")])
+
+        assert summary["unverified"] == 1
+        assert summary["uncertain"] == 0
 
     def test_empty_list(self):
         summary = build_summary([])
