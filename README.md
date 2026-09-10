@@ -48,18 +48,20 @@ Providers can also be configured in the web UI and switched per scan, without ed
 ## Run
 
 `./start.sh` on macOS and Linux, `start.cmd` on Windows. Either picks a free port
-(8000-8020), starts the server and opens the browser. Launching twice does not start a
-second server; it reuses the one already running.
+(8000-8020), starts the server, and opens a real application window rather than a
+browser tab -- when `pywebview` is installed; it falls back to opening a system
+browser tab when that is missing or fails to create a window. Launching twice does
+not start a second server; it reuses the one already running.
 
 Drag a zip of the project onto **New scan** and it becomes a row under **Scans**, where
 its progress, elapsed time and live log live. Deleting a scan that is still running
 stops it first. Reports are saved under `data/reports/` and open straight from disk —
 no server needed to read one.
 
-The page is the application's window. The launcher window can be closed and the server
-keeps running; closing the page stops it, unless a scan is still going, and **Server**
-has a button to stop it outright. A scan interrupted by the server stopping is marked
-as such the next time it starts, rather than sitting at "verifying" forever.
+This window is the server's window: closing it stops the server (with a confirmation
+first if a scan is still running); **Server** also has a button to stop it the same
+way. A scan interrupted by the server stopping is marked as such the next time it
+starts, rather than sitting at "verifying" forever.
 
 To run the server yourself instead:
 

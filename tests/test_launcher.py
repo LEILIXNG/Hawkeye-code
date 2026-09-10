@@ -211,3 +211,54 @@ def test_both_launchers_call_the_same_entry_point():
 
     assert "-m apps.launcher" in cmd
     assert "-m apps.launcher" in sh
+
+
+class TestMainTriesTheDesktopWindowFirst:
+    """main() is what start.cmd/start.sh actually call -- the window is
+    opt-in only in the sense that it degrades to the old browser flow, never
+    in the sense of needing a flag or a second entry point.
+
+    Patched on the real `apps.desktop` module's own attributes, not swapped
+    in via sys.modules: main() does `from apps import desktop` fresh on every
+    call, and once anything in the process has imported the real module
+    (tests/test_desktop.py does, earlier in this same file's collection
+    order), that lookup resolves through the `apps` package's own cached
+    attribute rather than sys.modules -- a sys.modules substitute is silently
+    ignored, and main() calls the *real* desktop.run(), which opens an
+    actual pywebview window and leaves its bootstrap thread running past the
+    end of the test. Patching the module's attributes in place works
+    regardless of which lookup path resolves it.
+    """
+
+    def test_desktop_run_is_used_when_available(self, monkeypatch):
+        from apps import desktop
+
+        monkeypatch.setattr(desktop, "available", lambda: True)
+        monkeypatch.setattr(desktop, "run", lambda: 0)
+        monkeypatch.setattr(launcher, "running_port", lambda: (_ for _ in ()).throw(
+            AssertionError("the browser flow must not run when the window succeeds")))
+
+        assert launcher.main() == 0
+
+    def test_a_missing_pywebview_falls_back_to_the_browser_flow(self, monkeypatch):
+        from apps import desktop
+
+        monkeypatch.setattr(desktop, "available", lambda: False)
+        monkeypatch.setattr(launcher, "running_port", lambda: 8099)
+        monkeypatch.setattr(launcher, "open_browser", lambda url: None)
+
+        assert launcher.main() == 0
+
+    def test_a_window_that_raises_falls_back_to_the_browser_flow(self, monkeypatch, tmp_path):
+        from apps import desktop
+
+        def boom():
+            raise RuntimeError("no WebView2 runtime")
+
+        monkeypatch.setattr(desktop, "available", lambda: True)
+        monkeypatch.setattr(desktop, "run", boom)
+        monkeypatch.setattr(launcher, "LAUNCHER_LOG_PATH", tmp_path / "launcher.log")
+        monkeypatch.setattr(launcher, "running_port", lambda: 8099)
+        monkeypatch.setattr(launcher, "open_browser", lambda url: None)
+
+        assert launcher.main() == 0

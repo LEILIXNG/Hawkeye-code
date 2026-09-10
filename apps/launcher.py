@@ -2,6 +2,12 @@
 
     python -m apps.launcher
 
+main() shows Hawkeye in a real window via apps/desktop.py wherever pywebview
+is available, and only falls back to the browser-tab flow below that when
+it is not (or fails outright). This module's own job stays the same either
+way: find or start the server and hand back a URL, which is what
+apps/desktop.py also calls into rather than duplicating.
+
 The console the launcher runs in owns every process it starts: closing it
 sends the whole tree a close event, which is why the old start.cmd had to
 say "close this window to stop". Here the server is spawned as a separate,
@@ -134,6 +140,21 @@ def wait_until_serving(port: int, process) -> bool:
 
 def main() -> int:
     os.chdir(ROOT)
+
+    # A real window instead of a browser tab where one is available -- see
+    # apps/desktop.py's own docstring for why. Anything short of a clean
+    # exit (pywebview missing, or failing outright: a headless box, a Linux
+    # desktop with no WebKit/Qt backend installed) falls back to the
+    # browser flow below rather than leaving the user with nothing.
+    try:
+        from apps import desktop
+    except ImportError:
+        desktop = None
+    if desktop is not None and desktop.available():
+        try:
+            return desktop.run()
+        except Exception as e:
+            record(f"desktop window failed ({type(e).__name__}: {e}); falling back to the browser")
 
     port = running_port()
     if port is not None:

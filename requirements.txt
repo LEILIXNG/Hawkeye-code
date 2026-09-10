@@ -21,3 +21,10 @@ sqlalchemy>=2.0
 python-multipart>=0.0.9
 tree-sitter>=0.23
 tree-sitter-java>=0.23
+# The launcher window (apps/desktop.py). Wraps the OS's own webview (WebView2
+# on Windows, WebKit on mac/Linux) rather than bundling a browser engine, so
+# this stays a small pure-Python dependency, not another Chromium download.
+# Optional at runtime: apps/launcher.py falls back to opening a system
+# browser tab if this is missing or fails to produce a window (no
+# WebView2/WebKit backend installed, a headless box).
+pywebview>=5.0
