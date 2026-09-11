@@ -14,6 +14,27 @@
 #   - java/android/security    -- mobile-only rules (exported activities, etc.)
 #   - java/aws-lambda/security -- serverless-specific taint rules
 # Revisit this trim if the tool ever needs to scan Android or Lambda code.
+#
+# Python (2026-09-11), same selection logic applied to the language: every
+# python/**/security directory whose framework scanner/callgraph/ can now
+# actually trace reachability through (Flask, Django, FastAPI, Pyramid), the
+# library-misuse buckets a server-side app plausibly pulls in regardless of
+# web framework (jinja2 -- SSTI, sqlalchemy, jwt, pymongo, boto3, requests,
+# sh -- subprocess/shell, cryptography), and python/lang/security for the
+# same general-purpose-Python rules java/lang/security covers on the other
+# side. cryptography/security's hardening-shaped CWEs (weak hash, broken
+# cipher, ...) are filtered by the CWE denylist below exactly like Java's
+# equivalent findings already are -- no separate handling needed, the
+# denylist reads CWE strings, not languages.
+#
+# Left out, mirroring the Java android/aws-lambda trim:
+#   - python/aws-lambda/security -- serverless-specific
+#   - python/airflow/security    -- DAG/orchestration-specific, not a web app
+#   - python/docker/security     -- Dockerfile linting, not source code
+#   - python/twilio/security     -- one third-party SDK, narrow value
+#   - python/attr, bokeh, click, distributed, correctness -- not `security/`
+#     directories at all (correctness/maintainability/best-practice rules,
+#     out of scope the same way non-security java/ directories already are)
 
 # Rules that fire often enough to be a real drag on a scan but have never
 # produced a true finding on this project's targets. Each id is passed to
@@ -158,4 +179,17 @@ configs:
   - rules/vendor/semgrep-rules/java/java-jwt/security
   - rules/vendor/semgrep-rules/java/jjwt/security
   - rules/vendor/semgrep-rules/java/mongodb/security
+  - rules/vendor/semgrep-rules/python/lang/security
+  - rules/vendor/semgrep-rules/python/flask/security
+  - rules/vendor/semgrep-rules/python/django/security
+  - rules/vendor/semgrep-rules/python/fastapi/security
+  - rules/vendor/semgrep-rules/python/pyramid/security
+  - rules/vendor/semgrep-rules/python/jinja2/security
+  - rules/vendor/semgrep-rules/python/sqlalchemy/security
+  - rules/vendor/semgrep-rules/python/jwt/security
+  - rules/vendor/semgrep-rules/python/pymongo/security
+  - rules/vendor/semgrep-rules/python/boto3/security
+  - rules/vendor/semgrep-rules/python/requests/security
+  - rules/vendor/semgrep-rules/python/sh/security
+  - rules/vendor/semgrep-rules/python/cryptography/security
   - rules/custom

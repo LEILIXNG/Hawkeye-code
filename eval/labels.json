@@ -112,5 +112,59 @@
     "line": 41,
     "expected_reachable": "no",
     "note": "reachable from BenchmarkController.benchmark(@RequestBody) but sanitized, not unreachable: sanitizeToolName() applies replaceAll(\"[^a-z0-9_-]\", \"\"), which strips dots and slashes, so ../ cannot survive into the resolved path"
+  },
+  {
+    "file": "app.py",
+    "line": 30,
+    "expected_reachable": "yes",
+    "note": "python_demo: search_users() concatenates a request param straight into a SQL string, sink is the call itself"
+  },
+  {
+    "file": "app.py",
+    "line": 41,
+    "expected_reachable": "yes",
+    "note": "python_demo: _ping() shells out with shell=True; only caller is ping(), a Flask route -- exercises cross-function call-graph tracing"
+  },
+  {
+    "file": "app.py",
+    "line": 64,
+    "expected_reachable": "yes",
+    "note": "python_demo: greet() builds the *template string itself* from request data (SSTI), not just a substituted value"
+  },
+  {
+    "file": "app.py",
+    "line": 70,
+    "expected_reachable": "no",
+    "note": "python_demo: greet_safe() renders a fixed template with the value passed as a Jinja2 variable -- autoescaped, not SSTI. Same rule id as line 64; distinguishing them is the point of this pair"
+  },
+  {
+    "file": "app.py",
+    "line": 88,
+    "expected_reachable": "yes",
+    "note": "python_demo: go() redirects straight to an unvalidated request parameter"
+  },
+  {
+    "file": "app.py",
+    "line": 94,
+    "expected_reachable": "no",
+    "note": "python_demo: go_safe() checks the target against a fixed allowlist before redirecting -- same rule id as line 88, sanitized"
+  },
+  {
+    "file": "app.py",
+    "line": 102,
+    "expected_reachable": "yes",
+    "note": "python_demo: fetch() passes a request parameter straight to requests.get() (SSRF); this rule attributes the sink to the source assignment line"
+  },
+  {
+    "file": "app.py",
+    "line": 103,
+    "expected_reachable": "yes",
+    "note": "python_demo: same SSRF in fetch(), a second rule attributing the sink to the requests.get() call line itself"
+  },
+  {
+    "file": "app.py",
+    "line": 110,
+    "expected_reachable": "no",
+    "note": "python_demo: orphan_vulnerable_helper() has the identical dangerous shell=True call as _ping() (line 41) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]

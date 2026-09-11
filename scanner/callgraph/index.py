@@ -11,6 +11,7 @@ from tree_sitter import Node, Parser
 from scanner.callgraph.entrypoints import _entry_reason
 from scanner.callgraph.model import Call, Index, Method, Owner
 from scanner.callgraph.mybatis import index_mybatis_mappers
+from scanner.callgraph.python_index import index_python_workspace
 from scanner.callgraph.syntax import _annotation_names, _arity, _owner_of, _parser, _text
 
 
@@ -25,8 +26,18 @@ IDENTIFIER_LITERAL = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{2,63}")
 
 
 def index_workspace(root: Path, parser: Parser | None = None) -> Index:
-    """Parse every .java file under `root` into methods and call sites, then
-    link the MyBatis mapper statements onto the interfaces they implement."""
+    """Parse every .java and .py file under `root` into one shared index of
+    methods and call sites, then link the MyBatis mapper statements onto
+    the interfaces they implement.
+
+    One index rather than one per language: Method, Call and Owner (see
+    model.py) carry nothing language-specific, and traverse.py's BFS does
+    not care which parser produced a node it is walking through. A repo
+    that is only ever one language pays nothing extra -- the other
+    language's glob just matches no files. `parser` is Java's own parser
+    only, kept as a constructor argument for the tests that already pass
+    one in; Python parsing always builds its own.
+    """
     parser = parser or _parser()
     index = Index()
     for path in sorted(root.rglob("*.java")):
@@ -36,6 +47,7 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
             continue
         rel = str(path.relative_to(root)).replace("\\", "/")
         _walk(parser.parse(src).root_node, src, rel, index, current=None, owner=Owner())
+    index_python_workspace(root, index)
     _build_ancestors(index)
     index_mybatis_mappers(root, index)
     return index
