@@ -117,9 +117,18 @@ def run_semgrep(
         )
 
     print(f"[scan] running: {' '.join(cmd)}", file=sys.stderr)
-    proc = subprocess.run(cmd, capture_output=True, text=True, **_no_console())
+    # Semgrep is a Python program and reads its YAML rules using the host's
+    # default code page. On a Chinese Windows install that is commonly GBK,
+    # while the bundled rule library is UTF-8. Enable Python's UTF-8 mode for
+    # this child only; it does not change Windows, Hawkeye, or the target files.
+    semgrep_env = os.environ.copy()
+    semgrep_env["PYTHONUTF8"] = "1"
+    # Capture bytes so the parent process does not try to decode Semgrep's
+    # UTF-8 output with the Windows code page in its pipe-reader thread.
+    proc = subprocess.run(cmd, capture_output=True, env=semgrep_env, **_no_console())
     if proc.returncode not in (0, 1):  # semgrep exits 1 when findings exist
-        print(proc.stderr, file=sys.stderr)
+        stderr = proc.stderr.decode("utf-8", errors="replace") if isinstance(proc.stderr, bytes) else proc.stderr
+        print(stderr, file=sys.stderr)
         raise SystemExit(f"semgrep failed with exit code {proc.returncode}")
     return json.loads(proc.stdout)
 

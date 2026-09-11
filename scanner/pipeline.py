@@ -183,7 +183,7 @@ def run_pipeline(
         in_scope = drop_out_of_scope(normalize(raw, workspace_dir), OUT_OF_SCOPE_CWES)
         kept = drop_excluded_paths(in_scope, EXCLUDED_PATHS)
         candidates = dedup_copies(dedup(kept), workspace_dir)
-    except Exception as e:
+    except (Exception, SystemExit) as e:
         raise PipelineError(f"scan failed: {e}") from e
 
     # Its own stage rather than the first thing the verify stage does: this

@@ -1400,7 +1400,11 @@ async function renderScanDetail(project, scan) {
 
   if (scan.status === "failed") {
     $("detail-actions-wrap").style.display = "none";
-    body.innerHTML = `<p class="err" style="font-size:0.85rem">${esc(scan.error_message ? localizeError(scan.error_message) : t("detail.failedNoInfo"))}</p>`;
+    const message = scan.error_message || "";
+    const pathHint = message.includes("path limit")
+      ? (lang === "zh" ? "文件路径过长。请将 Hawkeye-code 放到较短的目录（例如 D:\\Hawkeye），重新启动后再上传扫描。" : "File paths are too long. Move Hawkeye-code to a short directory (for example D:\\Hawkeye), restart, and upload again.")
+      : "";
+    body.innerHTML = `<div role="alert"><p class="err" style="font-size:0.85rem;overflow-wrap:anywhere">${esc(message ? localizeError(message) : t("detail.failedNoInfo"))}</p>${pathHint ? `<p>${esc(pathHint)}</p>` : ""}</div>`;
     return;
   }
 
