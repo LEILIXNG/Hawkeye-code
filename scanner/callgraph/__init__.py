@@ -33,11 +33,25 @@ function view is recognised by its calling convention (a `request` first
 parameter) rather than proven the way a route decorator or a class-based
 view's supertype is -- a hint, like Java's HttpServletRequest-typed-parameter
 fallback, not a certainty.
+
+JavaScript/TypeScript support (2026-09-11), js_syntax.py / js_entrypoints.py
+/ js_index.py, same model reuse again. The one structural difference from
+Java and Python: Express/Koa route handlers are very often anonymous --
+`app.get(path, (req, res) => {...})` -- so js_index.py creates a Method for
+one at the call site itself rather than only ever reading a name off a
+declaration, and resolves a *named* handler reference in a same-file
+second pass once the whole file's declarations are known. NestJS routes by
+decorator instead, the same shape Java's annotations and Python's
+decorators use. Next.js's file-based routing is not attempted -- there is
+no in-function signal to read for it at all, the entry point is a fact
+about the file path and export shape, not the function body.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
                                            SERVLET_ENTRY_METHODS, SERVLET_SUPERTYPES)
 from scanner.callgraph.index import IDENTIFIER_LITERAL, index_workspace
+from scanner.callgraph.js_entrypoints import HTTP_METHOD_NAMES, NEST_DECORATOR_NAMES
+from scanner.callgraph.js_index import index_js_workspace
 from scanner.callgraph.model import ANY_ARITY, MAX_DEPTH, Call, Index, Method, Owner
 from scanner.callgraph.mybatis import MYBATIS_STATEMENT_TAGS, index_mybatis_mappers
 from scanner.callgraph.python_entrypoints import DJANGO_VIEW_SUPERTYPES, ROUTE_DECORATOR_NAMES
@@ -45,10 +59,11 @@ from scanner.callgraph.python_index import index_python_workspace
 from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_entry_points
 
 __all__ = [
-    "ANY_ARITY", "DJANGO_VIEW_SUPERTYPES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
-    "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "REQUEST_MAPPING_ANNOTATIONS",
-    "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES", "ROUTE_DECORATOR_NAMES",
-    "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
+    "ANY_ARITY", "DJANGO_VIEW_SUPERTYPES", "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
+    "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
+    "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
+    "ROUTE_DECORATOR_NAMES", "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
-    "index_mybatis_mappers", "index_python_workspace", "index_workspace", "trace_to_entry_points",
+    "index_js_workspace", "index_mybatis_mappers", "index_python_workspace", "index_workspace",
+    "trace_to_entry_points",
 ]

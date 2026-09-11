@@ -9,6 +9,7 @@ from pathlib import Path
 from tree_sitter import Node, Parser
 
 from scanner.callgraph.entrypoints import _entry_reason
+from scanner.callgraph.js_index import index_js_workspace
 from scanner.callgraph.model import Call, Index, Method, Owner
 from scanner.callgraph.mybatis import index_mybatis_mappers
 from scanner.callgraph.python_index import index_python_workspace
@@ -26,9 +27,9 @@ IDENTIFIER_LITERAL = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{2,63}")
 
 
 def index_workspace(root: Path, parser: Parser | None = None) -> Index:
-    """Parse every .java and .py file under `root` into one shared index of
-    methods and call sites, then link the MyBatis mapper statements onto
-    the interfaces they implement.
+    """Parse every .java, .py and .js/.ts file under `root` into one shared
+    index of methods and call sites, then link the MyBatis mapper
+    statements onto the interfaces they implement.
 
     One index rather than one per language: Method, Call and Owner (see
     model.py) carry nothing language-specific, and traverse.py's BFS does
@@ -48,6 +49,7 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
         rel = str(path.relative_to(root)).replace("\\", "/")
         _walk(parser.parse(src).root_node, src, rel, index, current=None, owner=Owner())
     index_python_workspace(root, index)
+    index_js_workspace(root, index)
     _build_ancestors(index)
     index_mybatis_mappers(root, index)
     return index

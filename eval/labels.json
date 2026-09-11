@@ -166,5 +166,47 @@
     "line": 110,
     "expected_reachable": "no",
     "note": "python_demo: orphan_vulnerable_helper() has the identical dangerous shell=True call as _ping() (line 41) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
+  },
+  {
+    "file": "app.js",
+    "line": 20,
+    "expected_reachable": "yes",
+    "note": "express_demo: /users concatenates a request param straight into a SQL string, then sends the result -- rule set tags it both as SQLi and as an unsanitized response write"
+  },
+  {
+    "file": "app.js",
+    "line": 25,
+    "expected_reachable": "no",
+    "note": "express_demo: /users/safe uses a parameterized query; still flagged by the generic unsanitized-res.send rule, but res.send() of a query-result object serializes as JSON in Express, not HTML -- not exploitable as the XSS the rule shape implies, and not SQLi either"
+  },
+  {
+    "file": "app.js",
+    "line": 29,
+    "expected_reachable": "yes",
+    "note": "express_demo: ping() shells out with shell:true; only caller is the /ping route, a different function entirely -- exercises cross-function call-graph tracing"
+  },
+  {
+    "file": "app.js",
+    "line": 50,
+    "expected_reachable": "yes",
+    "note": "express_demo: /reports passes an unsanitized filename to readFileSync, path traversal -- caught by the generic unsanitized-response-write rule rather than a path-traversal-specific one, but the underlying flow is genuinely exploitable"
+  },
+  {
+    "file": "app.js",
+    "line": 55,
+    "expected_reachable": "yes",
+    "note": "express_demo: /go redirects straight to an unvalidated request parameter"
+  },
+  {
+    "file": "app.js",
+    "line": 61,
+    "expected_reachable": "no",
+    "note": "express_demo: /go/safe checks the target against a fixed allowlist before redirecting -- a different, broader rule than line 55's still fires because it cannot prove the ternary makes it safe"
+  },
+  {
+    "file": "app.js",
+    "line": 67,
+    "expected_reachable": "no",
+    "note": "express_demo: orphanVulnerableHelper() has the identical shell:true call as ping() (line 29) but nothing anywhere calls it -- tests not-reachable vs not-vulnerable"
   }
 ]

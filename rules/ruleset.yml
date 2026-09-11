@@ -35,6 +35,30 @@
 #   - python/attr, bokeh, click, distributed, correctness -- not `security/`
 #     directories at all (correctness/maintainability/best-practice rules,
 #     out of scope the same way non-security java/ directories already are)
+#
+# JavaScript/TypeScript (2026-09-11), same logic again: node-crypto,
+# jsonwebtoken/jwt-simple/jose/passport-jwt (JWT), sequelize (ORM/SQLi),
+# shelljs (command injection), sax/xml2json/node-expat (XML/XXE),
+# serialize-javascript (insecure deserialization), vm2/sandbox (code-eval
+# sandbox escapes -- a server-side risk, not a client one), grpc, ajv
+# (JSON-schema validation bypass), apollo (GraphQL), argon2/bluebird/thenify,
+# javascript/lang/security and typescript/lang/security for the
+# general-purpose rules, and typescript/nestjs/security for Nest's own
+# decorator-shaped findings scanner/callgraph/js_entrypoints.py can now
+# trace reachability through.
+#
+# Left out, browser/client-only or infra, not this tool's server-side scope:
+#   - javascript/browser, jquery, monaco-editor, playwright, puppeteer,
+#     chrome-remote-interface, phantom -- runs in a browser or drives one,
+#     not server-side application code
+#   - javascript/angular, vue, typescript/angular, typescript/react --
+#     client-side UI frameworks
+#   - javascript/fbjs, intercom, wkhtmltoimage, wkhtmltopdf -- narrow
+#     third-party integrations, low value the same way python/twilio was
+#   - javascript/aws-lambda, typescript/aws-cdk -- serverless/infra,
+#     mirrors python/java's aws-lambda exclusion
+#   - javascript/deno -- a different runtime with its own entry-point
+#     shapes scanner/callgraph/js_entrypoints.py does not recognise yet
 
 # Rules that fire often enough to be a real drag on a scan but have never
 # produced a true finding on this project's targets. Each id is passed to
@@ -192,4 +216,27 @@ configs:
   - rules/vendor/semgrep-rules/python/requests/security
   - rules/vendor/semgrep-rules/python/sh/security
   - rules/vendor/semgrep-rules/python/cryptography/security
+  - rules/vendor/semgrep-rules/javascript/lang/security
+  - rules/vendor/semgrep-rules/javascript/express/security
+  - rules/vendor/semgrep-rules/javascript/node-crypto/security
+  - rules/vendor/semgrep-rules/javascript/jsonwebtoken/security
+  - rules/vendor/semgrep-rules/javascript/jwt-simple/security
+  - rules/vendor/semgrep-rules/javascript/jose/security
+  - rules/vendor/semgrep-rules/javascript/passport-jwt/security
+  - rules/vendor/semgrep-rules/javascript/sequelize/security
+  - rules/vendor/semgrep-rules/javascript/shelljs/security
+  - rules/vendor/semgrep-rules/javascript/sax/security
+  - rules/vendor/semgrep-rules/javascript/xml2json/security
+  - rules/vendor/semgrep-rules/javascript/node-expat/security
+  - rules/vendor/semgrep-rules/javascript/serialize-javascript/security
+  - rules/vendor/semgrep-rules/javascript/vm2/security
+  - rules/vendor/semgrep-rules/javascript/sandbox/security
+  - rules/vendor/semgrep-rules/javascript/grpc/security
+  - rules/vendor/semgrep-rules/javascript/ajv/security
+  - rules/vendor/semgrep-rules/javascript/apollo/security
+  - rules/vendor/semgrep-rules/javascript/argon2/security
+  - rules/vendor/semgrep-rules/javascript/bluebird/security
+  - rules/vendor/semgrep-rules/javascript/thenify/security
+  - rules/vendor/semgrep-rules/typescript/lang/security
+  - rules/vendor/semgrep-rules/typescript/nestjs/security
   - rules/custom
