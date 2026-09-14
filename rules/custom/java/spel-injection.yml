@@ -1,0 +1,53 @@
+# SpEL injection where the parser is instantiated inline at the call site,
+# rather than assigned to a variable or field first.
+#
+# Measured gap. The vendored spel-injection rule requires an
+# ExpressionParser/SpelExpressionParser/TemplateAwareExpressionParser
+# variable or field to exist somewhere in the enclosing class or method
+# (`pattern-inside: ... ExpressionParser $PARSER = ...; ...`) before it will
+# look for a `.parseExpression(...)` call at all. `new
+# SpelExpressionParser().parseExpression($EXPR)` written as one chained
+# expression, with no intermediate variable, satisfies none of those
+# pattern-insides and the vendored rule never considers the call. On the
+# HA_Benchmark-suite-412cases corpus (github lanlijiarui/hawkeye issue
+# benchmark) roughly half the 54 labelled CWE-917 cases use exactly this
+# inline-chain shape (the other half assign the parser to a local first,
+# which the vendored rule already catches); recall on the whole SPEL
+# category went from 30/54 to 54/54 after adding this rule (`semgrep
+# --config rules/custom/java/spel-injection.yml` against the extracted
+# corpus, matched against groundtruth/JAVA-SPEL-*.json's sink locations).
+#
+# Scoped to exactly that gap, and no wider: a variable/field form is left
+# to the vendored rule on purpose, since claiming it here would just put a
+# second rule_id on a candidate that already has one. Vendored spel-
+# injection labels CWE-94 (Code Injection, the broad parent); this rule
+# uses CWE-917 (Expression Language Injection), the more specific weakness
+# and the one the benchmark's own groundtruth uses -- both are defensible,
+# but a single project's ruleset should not disagree with itself, and 917
+# is what scanner/core.py's CWE-based scope filtering and the report's
+# vuln-type grouping expect for this class of finding.
+rules:
+  - id: spel-injection-inline-parser
+    languages: [java]
+    severity: WARNING
+    message: >
+      A Spring expression is parsed from a value that is not a compile-time
+      constant, using a parser instantiated inline at the call site
+      (`new SpelExpressionParser().parseExpression(...)`). If that value
+      derives from the request, an attacker can supply a SpEL expression
+      that executes arbitrary code when evaluated. Do not evaluate an
+      expression built from user input; if a template is unavoidable,
+      restrict evaluation to a SimpleEvaluationContext, which disables
+      method invocation and type references.
+    metadata:
+      cwe:
+        - "CWE-917: Improper Neutralization of Special Elements used in an Expression Language Statement ('Expression Language Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern: new SpelExpressionParser().parseExpression($EXPR)
+      - pattern-not: new SpelExpressionParser().parseExpression("...")
+      - pattern-not-inside: |
+          $EXPR = "...";
+          ...

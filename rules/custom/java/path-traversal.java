@@ -110,4 +110,45 @@ class PathTraversalFixture {
         // ok: file-path-with-nonconstant-segment
         return root.resolve("uploads");
     }
+
+    // The HA_Benchmark-suite-412cases shape: the path is built into a local
+    // one statement before Paths.get, via +, .concat, or String.format --
+    // not inline at the call and not a bare untouched parameter either.
+    void concatIntoLocal(String value) throws Exception {
+        String target = "/data/exchange/" + value;
+        // ruleid: file-path-with-nonconstant-segment
+        Path path = Paths.get(target);
+        java.nio.file.Files.readAllBytes(path);
+    }
+
+    void concatMethodIntoLocal(String value) throws Exception {
+        String target = "/data/exchange/".concat(value);
+        // ruleid: file-path-with-nonconstant-segment
+        Path path = Paths.get(target);
+        java.nio.file.Files.readAllBytes(path);
+    }
+
+    void formattedIntoLocal(String value) throws Exception {
+        String target = String.format("/data/exchange/%s", value);
+        // ruleid: file-path-with-nonconstant-segment
+        Path path = Paths.get(target);
+        java.nio.file.Files.readAllBytes(path);
+    }
+
+    void stringBuilderIntoLocal(String value) throws Exception {
+        StringBuilder targetBuffer = new StringBuilder("/data/exchange/");
+        targetBuffer.append(value);
+        String target = targetBuffer.toString();
+        // ruleid: file-path-with-nonconstant-segment
+        Path path = Paths.get(target);
+        java.nio.file.Files.readAllBytes(path);
+    }
+
+    // Same shape, but assembled entirely from a literal -- must stay off.
+    void constantIntoLocalIndirected() throws Exception {
+        String target = "/data/exchange/" + "readme.txt";
+        // ok: file-path-with-nonconstant-segment
+        Path path = Paths.get(target);
+        java.nio.file.Files.readAllBytes(path);
+    }
 }

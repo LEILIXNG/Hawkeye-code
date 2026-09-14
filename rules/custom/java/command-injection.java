@@ -93,4 +93,49 @@ class CommandInjectionFixture {
         // ok: shell-invocation-with-nonconstant-command
         new ProcessBuilder("ping", "-c", "2", ipAddress).start();
     }
+
+    // The HA_Benchmark-suite-412cases shape: the shell argv is built into a
+    // local one statement before the call rather than inline at the call
+    // site. Every one of the 45 labelled CWE-78 cases in that corpus used
+    // one of the three forms below, and the vendored
+    // command-injection-process-builder rule misses all of them -- its
+    // `pattern-not-inside: $CMD = Arrays.asList("...",...); ...` exclusion
+    // only requires the *first* element to be a literal, so
+    // `Arrays.asList("/bin/sh", "-c", command)` satisfies it even though
+    // `command` is tainted.
+    void listFormIntoLocal(String value) throws IOException {
+        String command = String.format("echo -n %s", value);
+        List<String> argv = Arrays.asList("/bin/sh", "-c", command);
+        // ruleid: shell-invocation-with-nonconstant-command
+        new ProcessBuilder(argv).start();
+    }
+
+    void newArrayFormIntoLocal(String value) throws IOException {
+        String command = "echo -n " + value;
+        String[] argv = new String[] {"/bin/sh", "-c", command};
+        // ruleid: shell-invocation-with-nonconstant-command
+        new ProcessBuilder(argv).start();
+    }
+
+    // Array-initializer shorthand (no `new String[]`), and Runtime.exec
+    // rather than ProcessBuilder -- the other two shapes measured in the
+    // corpus.
+    void shorthandArrayIntoRuntimeExec(String value) throws IOException {
+        StringBuilder commandBuffer = new StringBuilder("echo ");
+        commandBuffer.append(value);
+        String command = commandBuffer.toString();
+        String[] argv = {"/bin/sh", "-c", command};
+        // ruleid: shell-invocation-with-nonconstant-command
+        Runtime.getRuntime().exec(argv);
+    }
+
+    // Same shape, but the command that reached the shell was itself a
+    // compile-time constant -- must stay off, same as constantInLocal above
+    // for the inline forms.
+    void constantIntoLocalIndirected() throws IOException {
+        String command = "echo -n hello";
+        List<String> argv = Arrays.asList("/bin/sh", "-c", command);
+        // ok: shell-invocation-with-nonconstant-command
+        new ProcessBuilder(argv).start();
+    }
 }

@@ -97,6 +97,60 @@ rules:
           # finding one line above it.
           - pattern: (java.nio.file.Path $P).resolve($SEGMENT)
           - pattern: $F.transferTo($SEGMENT)
+          # A path built into a local one statement earlier -- $PREFIX/$FMT
+          # plus $SEGMENT -- instead of concatenated inline at the sink
+          # call. Measured on the HA_Benchmark-suite-412cases corpus
+          # (github lanlijiarui/hawkeye issue benchmark): all 37 labelled
+          # CWE-22 cases used exactly this shape -- `String target = PREFIX +
+          # value;`, `String.format(PREFIX_FMT, value)`, or the StringBuilder
+          # three-liner below -- then a bare `Paths.get(target)`, which the
+          # rule scored 0/37 on before this addition since none of the
+          # inline-concat patterns above match a bare variable, and
+          # openWhateverWeWereGiven's untouched-parameter exclusion further
+          # below does not apply here because the variable was visibly
+          # rebuilt from request data one statement up, not merely passed
+          # through untouched. Recall went 0/37 -> 28/37 with the +/concat/
+          # format branches, then 28/37 -> 37/37 once the StringBuilder
+          # branch below covered the remaining 9 (all one dao/service
+          # class, all the same three-statement shape). $SEGMENT is reused
+          # as the metavariable
+          # name so the constant-literal and constant-name exclusions below
+          # cover these branches too.
+          - patterns:
+              - pattern-inside: |
+                  $PATHVAR = $PREFIX + $SEGMENT;
+                  ...
+              - pattern: Paths.get($PATHVAR)
+          - patterns:
+              - pattern-inside: |
+                  $PATHVAR = $PREFIX.concat($SEGMENT);
+                  ...
+              - pattern: Paths.get($PATHVAR)
+          - patterns:
+              - pattern-inside: |
+                  $PATHVAR = String.format($FMT, $SEGMENT);
+                  ...
+              - pattern: Paths.get($PATHVAR)
+          # Same shape again, but assembled through a StringBuilder over
+          # three statements (new StringBuilder(prefix), .append(segment),
+          # .toString() into the local) rather than one. All three
+          # pattern-inside constraints are siblings rather than nested
+          # ellipsis, so each just has to appear somewhere in the enclosing
+          # method -- which is enough here since the three lines are only
+          # ever written in this order in the corpus, and a false match
+          # would need a same-named $SB carrying an unrelated append/
+          # toString pair through the same method, which is implausible.
+          - patterns:
+              - pattern-inside: |
+                  $SB = new StringBuilder($PREFIX);
+                  ...
+              - pattern-inside: |
+                  $SB.append($SEGMENT);
+                  ...
+              - pattern-inside: |
+                  $PATHVAR = $SB.toString();
+                  ...
+              - pattern: Paths.get($PATHVAR)
       - metavariable-pattern:
           metavariable: $SEGMENT
           patterns:

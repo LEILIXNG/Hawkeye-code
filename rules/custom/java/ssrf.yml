@@ -1,0 +1,126 @@
+# SSRF where a URL is assembled into a local variable and only then handed
+# to java.net.URL, one or more statements away from the assembly.
+#
+# Measured gap, not a guess. The vendored ruleset's only CWE-918 rule is
+# tainted-url-host: `mode: taint` with pattern-sources restricted to a
+# Spring-annotated parameter of the *same method* the sink is in. Semgrep
+# OSS taint analysis is intraprocedural (see path-traversal.yml's header for
+# the general case), so any flow that crosses a method boundary before
+# reaching new URL(...) is invisible to it -- and on the
+# HA_Benchmark-suite-412cases corpus (github lanlijiarui/hawkeye issue
+# benchmark) every one of the 65 labelled CWE-918 cases does: the tainted
+# value arrives 10-20 calls upstream of the URL construction. Recall was
+# 0/65 before this rule and 65/65 after (`semgrep --config
+# rules/custom/java/ssrf.yml` against the extracted corpus, matched against
+# groundtruth/JAVA-SSRF-*.json's sink locations).
+#
+# This is a plain pattern rule, not `mode: taint`, for the reason every
+# other rule in this directory is: Semgrep's job is to surface the sink,
+# not prove the flow -- scanner/callgraph.py rebuilds the call chain for
+# context and the LLM verify stage judges reachability (docs/framework.md
+# sections 3-4). tainted-url-host already covers the single-method case; this
+# rule's job is the multi-method one, so it matches on shape (a URL string
+# built from a non-constant segment, however many statements before the
+# constructor call) rather than on provenance.
+#
+# Every assembly shape below has a trailing literal path/suffix appended
+# after the tainted segment (`"http://" + value + "/status"`, not just
+# `"http://" + value`) because that is what the corpus writes -- a plain
+# `$PREFIX + $SEGMENT` pattern would bind $SEGMENT to the *whole*
+# `value + "/status"` sub-expression instead of stopping at `value`, which
+# still satisfies the non-literal check and works, but a $PREFIX + $SEGMENT
+# pattern with no third term would bind $SEGMENT one level too high on a
+# `+`-chain of length 2 and one level too low on a `.concat()` chain of the
+# same length; matching all three lengths explicitly (bind $SEGMENT to the
+# *first* trailing operand) keeps this rule's shape==the-corpus's-shape
+# rather than relying on that coincidence.
+rules:
+  - id: url-from-nonconstant-segment
+    languages: [java]
+    severity: WARNING
+    message: >
+      A java.net.URL is constructed from a string built out of a segment
+      that is not a compile-time constant. If that segment derives from the
+      request, an attacker controls the host (or the whole URL), which lets
+      them redirect this server's outbound requests at an internal service
+      or an attacker-controlled endpoint -- server-side request forgery.
+      Validate the target against a host allowlist; do not accept an
+      arbitrary URL, host, or IP from the request.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      owasp:
+        - "A10:2021 - Server-Side Request Forgery (SSRF)"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-either:
+          # Assembled inline, at the constructor call itself.
+          - pattern: new URL($PREFIX + $SEGMENT + $TAIL)
+          - pattern: new URL($PREFIX.concat($SEGMENT).concat($TAIL))
+          - pattern: new URL(String.format($FMT, $SEGMENT))
+          # Assembled into a local one or more statements earlier, and the
+          # URL object itself used one or more statements after that. Each
+          # branch below chains three sibling pattern-inside conditions
+          # (assembly, then `$ENDPOINT = new URL($URLVAR)`) plus a final
+          # match on whichever of openStream/openConnection actually issues
+          # the request -- landing exactly on the corpus's labelled sink
+          # line, one call further than $URLVAR's own construction, rather
+          # than one line short of it.
+          - patterns:
+              - pattern-inside: |
+                  $URLVAR = $PREFIX + $SEGMENT + $TAIL;
+                  ...
+              - pattern-inside: |
+                  $ENDPOINT = new URL($URLVAR);
+                  ...
+              - pattern-either:
+                  - pattern: $ENDPOINT.openStream(...)
+                  - pattern: $ENDPOINT.openConnection(...)
+          - patterns:
+              - pattern-inside: |
+                  $URLVAR = $PREFIX.concat($SEGMENT).concat($TAIL);
+                  ...
+              - pattern-inside: |
+                  $ENDPOINT = new URL($URLVAR);
+                  ...
+              - pattern-either:
+                  - pattern: $ENDPOINT.openStream(...)
+                  - pattern: $ENDPOINT.openConnection(...)
+          - patterns:
+              - pattern-inside: |
+                  $URLVAR = String.format($FMT, $SEGMENT);
+                  ...
+              - pattern-inside: |
+                  $ENDPOINT = new URL($URLVAR);
+                  ...
+              - pattern-either:
+                  - pattern: $ENDPOINT.openStream(...)
+                  - pattern: $ENDPOINT.openConnection(...)
+          # The StringBuilder three-liner: new StringBuilder(prefix),
+          # .append(segment).append(tail), .toString() into the local. Same
+          # sibling-pattern-inside technique as path-traversal.yml's
+          # StringBuilder branch -- each condition just has to appear
+          # somewhere in the enclosing method, which is enough here.
+          - patterns:
+              - pattern-inside: |
+                  $SB = new StringBuilder($PREFIX);
+                  ...
+              - pattern-inside: |
+                  $SB.append($SEGMENT).append($TAIL);
+                  ...
+              - pattern-inside: |
+                  $URLVAR = $SB.toString();
+                  ...
+              - pattern-inside: |
+                  $ENDPOINT = new URL($URLVAR);
+                  ...
+              - pattern-either:
+                  - pattern: $ENDPOINT.openStream(...)
+                  - pattern: $ENDPOINT.openConnection(...)
+      # A fixed URL cannot be steered by a request. "..." is semgrep's
+      # any-string-literal pattern and sees through constant propagation.
+      - metavariable-pattern:
+          metavariable: $SEGMENT
+          patterns:
+            - pattern: $ANY
+            - pattern-not: "\"...\""

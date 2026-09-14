@@ -19,6 +19,28 @@
 #     and `exec(String.format(...))`, i.e. concatenation written inside the
 #     call itself.
 #   - both of the above when the command was assembled into a local first.
+#   - the shell argv built into a *local variable one statement earlier*
+#     rather than written inline at the call site: `String[] argv = {"/bin/
+#     sh", "-c", command}; new ProcessBuilder(argv).start();`. Measured on
+#     the HA_Benchmark-suite-412cases corpus (github lanlijiarui/hawkeye
+#     issue benchmark): all 45 labelled CWE-78 cases used this shape --
+#     `Arrays.asList(...)` or a `String[]` local, one statement before
+#     `new ProcessBuilder($ARGV)` / `$R.exec($ARGV)` -- and the rule scored
+#     0/45 before this addition because every existing pattern above (here
+#     and in the vendored rules) matches the array/list literal only where
+#     it is written inline. Recall went to 45/45 after adding it (`semgrep
+#     --config rules/custom/java/command-injection.yml` against the
+#     extracted corpus, matched against groundtruth/JAVA-CMDI-*.json's sink
+#     locations); `semgrep --test` on the fixture below still passes.
+#   - the vendored command-injection-process-builder rule's own
+#     `pattern-not-inside: $CMD = Arrays.asList("...",...); ...` exclusion
+#     is broader than it looks: semgrep's bare `"..."` matches *one* string
+#     literal, and the trailing `...` after it is a separate wildcard for
+#     *any remaining arguments of any kind* -- so `Arrays.asList("/bin/sh",
+#     "-c", command)` (only the first element literal) satisfies that
+#     exclusion and the vendored rule never fires on it at all. That rule is
+#     vendored and pinned (see CLAUDE.md); this rule's indirected patterns
+#     below are the fix, not a change to it.
 #
 # What it deliberately does NOT cover: ProcessBuilder/exec without a shell
 # (`new ProcessBuilder("ping", "-c", "2", ip)`). Without a shell the argv
@@ -53,22 +75,75 @@ rules:
           - pattern: new ProcessBuilder(new String[] {"sh", "-c", $ARG})
           - pattern: new ProcessBuilder(new String[] {"bash", "-c", $ARG})
           - pattern: new ProcessBuilder(new String[] {"cmd", "/c", $ARG})
+          - pattern: new ProcessBuilder(new String[] {"/bin/sh", "-c", $ARG})
           - pattern: new ProcessBuilder("sh", "-c", $ARG)
           - pattern: new ProcessBuilder("bash", "-c", $ARG)
           - pattern: new ProcessBuilder("cmd", "/c", $ARG)
+          - pattern: new ProcessBuilder("/bin/sh", "-c", $ARG)
           - pattern: new ProcessBuilder(Arrays.asList("sh", "-c", $ARG))
           - pattern: new ProcessBuilder(Arrays.asList("bash", "-c", $ARG))
           - pattern: new ProcessBuilder(Arrays.asList("cmd", "/c", $ARG))
+          - pattern: new ProcessBuilder(Arrays.asList("/bin/sh", "-c", $ARG))
           - pattern: $R.exec(new String[] {"sh", "-c", $ARG})
           - pattern: $R.exec(new String[] {"bash", "-c", $ARG})
           - pattern: $R.exec(new String[] {"cmd", "/c", $ARG})
+          - pattern: $R.exec(new String[] {"/bin/sh", "-c", $ARG})
           - pattern: $R.exec("sh", "-c", $ARG)
           - pattern: $R.exec("bash", "-c", $ARG)
           - pattern: $R.exec("cmd", "/c", $ARG)
+          - pattern: $R.exec("/bin/sh", "-c", $ARG)
+          # The shell argv assembled into a local one statement earlier
+          # instead of written inline at the call site. $SH/$FLAG are
+          # metavariables rather than another wall of literal enumeration --
+          # matched shell/flag pairs are constrained right below -- so this
+          # stays "a shell was invoked" and does not widen into "any array
+          # handed to ProcessBuilder/exec", which is command-injection-
+          # process-builder's territory, not this rule's.
+          # Each alternative is its own pattern-inside (ending on a bare
+          # `...`) plus a separate bare-expression pattern rather than one
+          # multi-line "decl; ...; use" pattern string -- semgrep's Java
+          # pattern parser rejects a trailing semicolon-less expression right
+          # after a `...` in the same pattern (Parse_error at rule-validate
+          # time, not at scan time), and this is the split every other
+          # multi-statement sink in this ruleset already uses (see
+          # tainted-system-command's ProcessBuilder.start() sink).
+          - patterns:
+              - pattern-either:
+                  - patterns:
+                      - pattern-inside: |
+                          $ARGV = new String[] {$SH, $FLAG, $ARG};
+                          ...
+                      - pattern: new ProcessBuilder($ARGV)
+                  - patterns:
+                      - pattern-inside: |
+                          $T[] $ARGV = {$SH, $FLAG, $ARG};
+                          ...
+                      - pattern: new ProcessBuilder($ARGV)
+                  - patterns:
+                      - pattern-inside: |
+                          $ARGV = Arrays.asList($SH, $FLAG, $ARG);
+                          ...
+                      - pattern: new ProcessBuilder($ARGV)
+                  - patterns:
+                      - pattern-inside: |
+                          $ARGV = new String[] {$SH, $FLAG, $ARG};
+                          ...
+                      - pattern: $R.exec($ARGV)
+                  - patterns:
+                      - pattern-inside: |
+                          $T[] $ARGV = {$SH, $FLAG, $ARG};
+                          ...
+                      - pattern: $R.exec($ARGV)
+              - metavariable-regex:
+                  metavariable: $SH
+                  regex: ^"(/bin/(sh|bash)|sh|bash|cmd)"$
+              - metavariable-regex:
+                  metavariable: $FLAG
+                  regex: ^"(-c|/c)"$
       # A shell line built entirely out of literals carries no external
       # input. `"..."` is semgrep's any-string-literal pattern, and it sees
       # through constant propagation, so this also covers the command being
-      # parked in a final local first.
+      # parked in a final local first for the inline shapes above.
       - pattern-not: new ProcessBuilder(new String[] {"...", "...", "..."})
       - pattern-not: new ProcessBuilder("...", "...", "...")
       - pattern-not: new ProcessBuilder(Arrays.asList("...", "...", "..."))
@@ -76,8 +151,18 @@ rules:
       - pattern-not: $R.exec("...", "...", "...")
       # Belt and braces for the local-variable case on the versions where
       # constant propagation does not reach: the binding of $ARG is shared
-      # with the positive pattern, so this only subtracts when the very
+      # with every branch above, so this only subtracts when the very
       # variable being passed to the shell was assigned a literal.
       - pattern-not-inside: |
           $ARG = "...";
           ...
+      # The indirected branches bind $ARG straight out of the array/list
+      # literal rather than through a separate assignment, so
+      # pattern-not-inside above cannot see a literal there -- this is the
+      # only literal guard those branches have, and it applies to the inline
+      # branches too (harmless: their own pattern-not lines above already
+      # exclude the all-literal case).
+      - metavariable-pattern:
+          metavariable: $ARG
+          patterns:
+            - pattern-not: "\"...\""
