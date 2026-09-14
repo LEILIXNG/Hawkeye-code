@@ -59,6 +59,28 @@
 #     mirrors python/java's aws-lambda exclusion
 #   - javascript/deno -- a different runtime with its own entry-point
 #     shapes scanner/callgraph/js_entrypoints.py does not recognise yet
+#
+# Go (2026-09-14): unlike Java/Python/JS, the vendored rules for this
+# language are not split into one directory per web framework at all --
+# almost everything security-relevant lives in go/lang/security regardless
+# of whether the code is net/http, gin, echo or plain library use, because
+# semgrep-rules simply does not carry separate gin/echo/chi rule packs the
+# way it does spring/flask/express ones. So the selection here is close to
+# "every go/*/security directory", trimmed the same one way every other
+# language's selection is:
+#   - go/aws-lambda/security -- serverless-specific, mirrors the
+#     java/python/javascript aws-lambda exclusion
+# Kept, unlike the trimmed-out frameworks above: go/otto/security (an
+# embedded JS interpreter -- arbitrary code execution is a server-side risk
+# here the same way javascript/vm2 and javascript/sandbox were kept for
+# JS), go/gorilla/security (mux/sessions, mostly cookie-hardening CWEs the
+# out_of_scope_cwes denylist below already filters -- kept for the same
+# reason java/mongodb/security is, a framework-specific bucket costs
+# nothing to include once the CWE filter exists), go/gorm/security (ORM
+# misuse, dataflow-shaped like java/mongodb's), go/grpc/security (mirrors
+# javascript/grpc), go/jwt-go/security (mirrors java-jwt/jjwt/python's jwt),
+# go/template/security (html/template SSTI -- Go's counterpart to Java's
+# SpEL and Python's jinja2 template-injection coverage).
 
 # Rules that fire often enough to be a real drag on a scan but have never
 # produced a true finding on this project's targets. Each id is passed to
@@ -192,6 +214,10 @@ exclude_paths:
   - src/it                    # Maven failsafe integration tests
   - src/integrationTest       # Gradle integration tests
   - "*.min.js"                # minified bundles: unreadable and not the source
+  - "*_test.go"                # Go's own test-file convention: lives beside the
+                               # source it tests, not under a separate test/ dir,
+                               # so the bare `test`/`tests` names above cannot
+                               # catch it the way they catch every other language
 
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
@@ -239,4 +265,11 @@ configs:
   - rules/vendor/semgrep-rules/javascript/thenify/security
   - rules/vendor/semgrep-rules/typescript/lang/security
   - rules/vendor/semgrep-rules/typescript/nestjs/security
+  - rules/vendor/semgrep-rules/go/lang/security
+  - rules/vendor/semgrep-rules/go/gorilla/security
+  - rules/vendor/semgrep-rules/go/gorm/security
+  - rules/vendor/semgrep-rules/go/grpc/security
+  - rules/vendor/semgrep-rules/go/jwt-go/security
+  - rules/vendor/semgrep-rules/go/otto/security
+  - rules/vendor/semgrep-rules/go/template/security
   - rules/custom

@@ -71,10 +71,14 @@ def long_paths(
             continue
         # Matches how semgrep reads these: a bare name is a directory at any
         # depth, a multi-segment glob is a run of consecutive directories,
-        # and a *.ext glob is a filename pattern.
+        # and a glob containing a wildcard but no slash is a filename
+        # pattern -- not just the `*.ext` shape (`*.min.js`): `*_test.go`
+        # has its wildcard at the front instead, and both need the same
+        # fnmatch treatment rather than being read as a literal directory
+        # name that will never appear in `parts`.
         dirs = "/" + "/".join(parts[:-1]) + "/"
         if any(
-            fnmatch(path.name, g) if g.startswith("*.")
+            fnmatch(path.name, g) if "*" in g and "/" not in g
             else (f"/{g}/" in dirs if "/" in g else g in parts[:-1])
             for g in globs
         ):

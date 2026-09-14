@@ -6,7 +6,7 @@
 
 <p align="center">中文 · <a href="README.md">English</a></p>
 
-一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。目前 Java/Spring、Python（Flask、Django、FastAPI）和 JavaScript/TypeScript（Express、Koa、NestJS）都支持。
+一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。目前 Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）和 Go（net/http、gorilla/mux、chi、gin、echo）都支持。
 
 只报有完整 source→sink 路径的漏洞。全程跑在你自己的机器上。
 
@@ -105,15 +105,15 @@ python scripts/04_translate.py          # 可选
 python -m pytest tests/ -v
 ```
 
-478 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、三种语言的调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
+502 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、四种语言的调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
 
 ## 实现要点
 
-- **跨文件分析，三种语言。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 反着走——从 sink 出发，顺着调用者向上、跨文件，直到抵达一个请求能进来的入口。一张共享的图，每种语言各配一个解析器喂进去：Java 那边识别 HTTP handler、消息监听器（Kafka/Rabbit/JMS）、Servlet/Filter 方法，以及 MyBatis mapper XML（含跨模块的 `<mapper namespace>` 解析）；Python 那边识别 Flask/FastAPI 的路由装饰器和 Django 的视图（函数式和基于类的都算）；JavaScript/TypeScript 那边识别 Express/Koa 的路由注册（包括没名字的内联 handler——路由调用自己的参数就是入口点，不一定要有命名声明）和 NestJS 的路由装饰器。一个混合语言的项目会索引进同一张图，而不是好几张互相看不见的图。
+- **跨文件分析，四种语言。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 反着走——从 sink 出发，顺着调用者向上、跨文件，直到抵达一个请求能进来的入口。一张共享的图，每种语言各配一个解析器喂进去：Java 那边识别 HTTP handler、消息监听器（Kafka/Rabbit/JMS）、Servlet/Filter 方法，以及 MyBatis mapper XML（含跨模块的 `<mapper namespace>` 解析）；Python 那边识别 Flask/FastAPI 的路由装饰器和 Django 的视图（函数式和基于类的都算）；JavaScript/TypeScript 那边识别 Express/Koa 的路由注册（包括没名字的内联 handler——路由调用自己的参数就是入口点，不一定要有命名声明）和 NestJS 的路由装饰器；Go 那边没有注解也没有装饰器，识别方式和 JS 一样按调用形状认——`router.GET(path, handler)`，覆盖 net/http、gorilla/mux、chi、gin、echo，内联函数字面量、命名函数引用、方法值（`h.GetUser`）三种写法都用同一个二次解析处理。一个混合语言的项目会索引进同一张图，而不是好几张互相看不见的图。
 - **Semgrep 只出候选，LLM 下结论。** 每条判定都带 `reachable` / `sanitized` / `confidence` / `reasoning`，外加攻击场景和点名到行的具体修复方案。
 - **范围以数据流为准。** 命中代码静态属性的规则——弱哈希、Cookie 少标志位、证书校验被关掉——按 CWE 在花掉一次复核调用之前就被过滤掉。
 - **危险级别按 CVSS 定，不看引擎自己的 severity。** Semgrep 只会给 ERROR/WARNING，区分不了未授权 SQL 注入和弱哈希。`scanner/cvss.py` 把每个 CWE 映射到一条 v3.1 基准向量并按公式算分，再由可达性给这个档位定级——被判定不可达的发现无论基准分多高都落到最低档。
-- **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，在 `rules/ruleset.yml` 里裁剪到服务端 Java/Spring、Python（Flask/Django/FastAPI/Pyramid）和 JavaScript/TypeScript（Express、NestJS，以及 Node 后端常用的 JWT、ORM、XML 解析、shell/subprocess 相关库）范围。`rules/custom` 下 5 条自研规则覆盖命令注入、路径穿越、XXE、开放重定向、MyBatis `${}`。
+- **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，在 `rules/ruleset.yml` 里裁剪到服务端 Java/Spring、Python（Flask/Django/FastAPI/Pyramid）、JavaScript/TypeScript（Express、NestJS，以及 Node 后端常用的 JWT、ORM、XML 解析、shell/subprocess 相关库）和 Go（net/http/gorilla/gorm/gRPC/JWT/html-template，以及 otto 这个内嵌 JS 解释器带来的代码执行风险）范围。`rules/custom` 下 7 条自研规则覆盖命令注入、路径穿越、XXE、开放重定向、SSRF、SpEL 注入、MyBatis `${}`。
 
 完整架构见 `docs/framework.md`，开发规范见 `CLAUDE.md`。
 

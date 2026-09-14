@@ -208,7 +208,7 @@ def test_semgrep_exclude_covers_the_bare_name_globs(tmp_path):
     for glob in load_excluded_paths():
         if "/" in glob:
             continue
-        if glob.startswith("*."):  # file glob, e.g. *.min.js
+        if "*" in glob:  # file glob, e.g. *.min.js or *_test.go
             paths = [f"a{glob[1:]}", f"moduleA/b{glob[1:]}"]
         else:
             paths = [f"{glob}/V.java", f"moduleA/{glob}/V.java"]

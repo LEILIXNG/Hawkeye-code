@@ -9,6 +9,7 @@ from pathlib import Path
 from tree_sitter import Node, Parser
 
 from scanner.callgraph.entrypoints import _entry_reason
+from scanner.callgraph.go_index import index_go_workspace
 from scanner.callgraph.js_index import index_js_workspace
 from scanner.callgraph.model import Call, Index, Method, Owner
 from scanner.callgraph.mybatis import index_mybatis_mappers
@@ -27,8 +28,8 @@ IDENTIFIER_LITERAL = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{2,63}")
 
 
 def index_workspace(root: Path, parser: Parser | None = None) -> Index:
-    """Parse every .java, .py and .js/.ts file under `root` into one shared
-    index of methods and call sites, then link the MyBatis mapper
+    """Parse every .java, .py, .js/.ts and .go file under `root` into one
+    shared index of methods and call sites, then link the MyBatis mapper
     statements onto the interfaces they implement.
 
     One index rather than one per language: Method, Call and Owner (see
@@ -37,7 +38,7 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
     that is only ever one language pays nothing extra -- the other
     language's glob just matches no files. `parser` is Java's own parser
     only, kept as a constructor argument for the tests that already pass
-    one in; Python parsing always builds its own.
+    one in; every other language's parsing always builds its own.
     """
     parser = parser or _parser()
     index = Index()
@@ -50,6 +51,7 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
         _walk(parser.parse(src).root_node, src, rel, index, current=None, owner=Owner())
     index_python_workspace(root, index)
     index_js_workspace(root, index)
+    index_go_workspace(root, index)
     _build_ancestors(index)
     index_mybatis_mappers(root, index)
     return index

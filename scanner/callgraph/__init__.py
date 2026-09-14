@@ -45,10 +45,27 @@ decorator instead, the same shape Java's annotations and Python's
 decorators use. Next.js's file-based routing is not attempted -- there is
 no in-function signal to read for it at all, the entry point is a fact
 about the file path and export shape, not the function body.
+
+Go support (2026-09-14), go_syntax.py / go_entrypoints.py / go_index.py,
+same model reuse a third time. Structurally closest to JS/TS: Go has no
+annotations or decorators either, so net/http, gorilla/mux, chi, gin and
+echo are all recognised the same way Express is, by a route-registration
+*call* (`router.GET(path, handler)`) rather than anything written on the
+handler -- go_index.py reuses JS's inline-literal-at-the-call-site plus
+same-file-second-pass-for-a-named-reference approach, extended to also
+resolve a *method value* (`router.GET(path, h.GetUser)`), a handler shape
+JS's own two forms do not have. The other structural difference: Go has no
+`this`/`self` keyword, so Call.receiver_is_self is decided by comparing a
+call's receiver against the enclosing method's own author-chosen receiver
+variable name (read off the receiver clause itself) rather than against a
+fixed keyword.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
                                            SERVLET_ENTRY_METHODS, SERVLET_SUPERTYPES)
+from scanner.callgraph.go_entrypoints import HANDLER_PARAM_TYPES
+from scanner.callgraph.go_entrypoints import HTTP_METHOD_NAMES as GO_HTTP_METHOD_NAMES
+from scanner.callgraph.go_index import index_go_workspace
 from scanner.callgraph.index import IDENTIFIER_LITERAL, index_workspace
 from scanner.callgraph.js_entrypoints import HTTP_METHOD_NAMES, NEST_DECORATOR_NAMES
 from scanner.callgraph.js_index import index_js_workspace
@@ -59,11 +76,12 @@ from scanner.callgraph.python_index import index_python_workspace
 from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_entry_points
 
 __all__ = [
-    "ANY_ARITY", "DJANGO_VIEW_SUPERTYPES", "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
+    "ANY_ARITY", "DJANGO_VIEW_SUPERTYPES", "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
+    "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
     "ROUTE_DECORATOR_NAMES", "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
-    "index_js_workspace", "index_mybatis_mappers", "index_python_workspace", "index_workspace",
-    "trace_to_entry_points",
+    "index_go_workspace", "index_js_workspace", "index_mybatis_mappers", "index_python_workspace",
+    "index_workspace", "trace_to_entry_points",
 ]
