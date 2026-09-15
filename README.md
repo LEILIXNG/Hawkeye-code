@@ -6,7 +6,7 @@
 
 <p align="center"><a href="README.zh-CN.md">中文</a> · English</p>
 
-A local-first SAST tool for server-side web apps. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix. Java/Spring, Python (Flask, Django, FastAPI), JavaScript/TypeScript (Express, Koa, NestJS) and Go (net/http, gorilla/mux, chi, gin, echo) are all supported today.
+A local-first SAST tool for server-side web apps. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix. Java/Spring, Python (Flask, Django, FastAPI), JavaScript/TypeScript (Express, Koa, NestJS), Go (net/http, gorilla/mux, chi, gin, echo), and C++ are supported today.
 
 Only findings with a complete source→sink path are reported. Everything runs on your own machine.
 
@@ -111,15 +111,15 @@ Skip `04_translate.py` and the report reads in whichever language the model answ
 python -m pytest tests/ -v
 ```
 
-502 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph for all four languages, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
+536 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph for all five language groups, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
 
 ## How it works
 
-- **Cross-file analysis, four languages.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. One shared graph, fed by a parser per language: for Java, HTTP handlers, message listeners (Kafka/Rabbit/JMS), Servlet/Filter methods and MyBatis mapper XML (including cross-module `<mapper namespace>` resolution); for Python, Flask/FastAPI route decorators and Django views, both function-based and class-based; for JavaScript/TypeScript, Express/Koa route registrations (including an inline, unnamed handler — a route call's own argument becomes the entry point, not just a named declaration) and NestJS's route decorators; for Go, which has neither annotations nor decorators, the same call-shaped recognition JS uses — `router.GET(path, handler)` across net/http, gorilla/mux, chi, gin and echo, resolving an inline func literal, a named function reference or a method value (`h.GetUser`) all by the same second pass. A mixed-language checkout indexes into one graph, not several that can't see each other.
+- **Cross-file analysis, five language groups.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Java, Python and JavaScript/TypeScript retain their framework-specific entry recognizers; Go recognises net/http, gorilla/mux, chi, gin and echo route registrations; C++ uses tree-sitter to index functions, methods and calls without guessing a framework entry point. A mixed-language checkout indexes into one shared graph.
 - **Semgrep for candidates, LLM for verdicts.** Every verdict carries `reachable` / `sanitized` / `confidence` / `reasoning`, plus an exploit scenario and a concrete fix naming the line and the replacement.
 - **Dataflow-scoped.** Findings that match a static property — weak hash, missing cookie flag, disabled cert check — are filtered out by CWE before they cost a verify call.
 - **Risk from CVSS, not from the engine's own severity.** Semgrep grades everything ERROR or WARNING, which cannot separate an unauthenticated SQL injection from a weak hash. `scanner/cvss.py` maps each CWE to a v3.1 base vector and computes the score from it; reachability then grades that band, so a finding proved unreachable ends up lowest whatever it scored.
-- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated in `rules/ruleset.yml` down to server-side Java/Spring, Python (Flask/Django/FastAPI/Pyramid), JavaScript/TypeScript (Express, NestJS, and the libraries a Node backend actually pulls in — JWT, an ORM, XML parsing, shell/subprocess) and Go (net/http/gorilla/gorm/gRPC/JWT/html-template, plus the embedded-JS-interpreter risk in otto) web-app rule sets. Seven custom rules under `rules/custom` cover command injection, path traversal, XXE, open redirect, SSRF, SpEL injection and MyBatis `${}`.
+- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated for server-side Java/Spring, Python, JavaScript/TypeScript and Go. Fifteen custom rules under `rules/custom` add project-specific Java/XML coverage plus eight C++ checks (`CPP001`–`CPP008`). C++ rules use Semgrep's C++ AST; `.h` files require C++-specific content before their findings are accepted.
 
 Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 
@@ -127,7 +127,7 @@ Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 
 Phase 1 is done — upload → scan → report works end to end.
 
-- 42 hand-labeled candidates in `eval/labels.json` across three languages: 19 Java (external VulnerableApp corpus, agreement 18/19 on the most recent full run), 9 Python (`eval/fixtures/python_demo`, agreement 9/9), 7 JavaScript (`eval/fixtures/express_demo`, agreement 6/7 — the one disagreement traced to a single degenerate LLM response, confidence 0 and empty reasoning, next to six others answered normally; not a call-graph defect, and not re-run to make the number look better). Both fixture corpora are checked into the repo, unlike the Java labels, so that half is reproducible without an external download.
+- 43 hand-labeled candidates in `eval/labels.json`: 19 Java, 9 Python, 7 JavaScript and 8 C++ (`eval/fixtures/cpp_demo`). The C++ labels distinguish deterministic rule matches from the existing request-reachability verdict; no C++ framework entry point is assumed.
 - The verifier flips roughly 16% of verdicts between identical re-runs, so a ±1 move on any label set is noise. Engine changes are argued with deterministic counts instead.
 - Java measured on a real 13-module Maven application, not only on a teaching target.
 

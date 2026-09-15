@@ -15,6 +15,8 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from scanner.common import sha256
+from scanner.cpp_validators import passes_cpp_validator
+from scanner.languages import is_cpp_path
 
 # Re-exported so `from scanner.core import build_context` keeps working for
 # pipeline.py, scripts/02_verify.py and the tests that load them by path.
@@ -236,7 +238,15 @@ def normalize(raw: dict, target: Path) -> list[dict]:
 
         extra = result.get("extra", {})
         metadata = extra.get("metadata", {})
+        if metadata.get("hawkeye_language") == "cpp" and Path(sink_file).suffix.lower() == ".h":
+            if not is_cpp_path(target / sink_file):
+                continue
+        if not passes_cpp_validator(result, target):
+            continue
         dedup_key = sha256(f"{source_file}:{source_line}:{sink_file}:{sink_line}")
+
+        start = result.get("start", {})
+        end = result.get("end", {})
 
         candidates.append({
             "rule_id": result.get("check_id"),
@@ -248,10 +258,28 @@ def normalize(raw: dict, target: Path) -> list[dict]:
             "source_line": source_line,
             "sink_file": sink_file,
             "sink_line": sink_line,
+            "sink_column": start.get("col"),
+            "sink_end_line": end.get("line"),
+            "sink_end_column": end.get("col"),
+            "code_snippet": _matched_source(result, target),
             "dedup_key": dedup_key,
             "is_intraprocedural": is_intraprocedural,
         })
     return candidates
+
+
+def _matched_source(result: dict, target: Path) -> str:
+    """Read the exact matched source span; Semgrep redacts `extra.lines`."""
+    try:
+        path = Path(result["path"])
+        if not path.is_absolute():
+            path = target / path
+        data = path.read_bytes()
+        start = int(result["start"]["offset"])
+        end = int(result["end"]["offset"])
+        return data[start:end].decode("utf-8", errors="replace")
+    except (KeyError, TypeError, ValueError, OSError):
+        return ""
 
 
 def cwe_ids(candidate: dict) -> set[str]:

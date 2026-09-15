@@ -1,0 +1,17 @@
+rules:
+  - id: CPP004
+    languages: [cpp]
+    severity: WARNING
+    message: "Potential memory-copy risk: verify that the memcpy length does not exceed the destination buffer size."
+    metadata:
+      name: Potential unsafe memory copy
+      description: Flags memcpy for size review without claiming a definite overflow.
+      confidence: MEDIUM
+      hawkeye_language: cpp
+      hawkeye_validator: standard-function-call
+      cwe: ["CWE-120: Buffer Copy without Checking Size of Input"]
+    patterns:
+      - pattern: $FUNC(...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: '^(?:::)?(?:std::)?memcpy$'

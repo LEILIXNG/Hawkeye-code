@@ -1,0 +1,29 @@
+rules:
+  - id: CPP005
+    languages: [cpp]
+    severity: ERROR
+    message: Allocation and deallocation forms are mismatched (new/new[] versus delete/delete[]).
+    metadata:
+      name: Mismatched new and delete
+      description: Detects local high-confidence new[]/delete and new/delete[] mismatches.
+      confidence: HIGH
+      hawkeye_language: cpp
+      hawkeye_validator: new-delete-mismatch
+      cwe: ["CWE-762: Mismatched Memory Management Routines"]
+    pattern-either:
+      - patterns:
+          - pattern-inside: |
+              $T *$PTR = new $U[$SIZE];
+              ...
+          - pattern: delete $PTR;
+          - pattern-not: delete[] $PTR;
+          - pattern-not-regex: '^\\s*delete\\s*\\[\\s*\\]'
+      - patterns:
+          - pattern-inside: |
+              $T *$PTR = new $U(...);
+              ...
+          - pattern: delete[] $PTR;
+          - pattern-not-inside: |
+              $T *$PTR = new $U[$SIZE];
+              ...
+              delete[] $PTR;

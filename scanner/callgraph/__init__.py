@@ -59,6 +59,12 @@ JS's own two forms do not have. The other structural difference: Go has no
 call's receiver against the enclosing method's own author-chosen receiver
 variable name (read off the receiver clause itself) rather than against a
 fixed keyword.
+
+C++ support adds cpp_syntax.py / cpp_index.py. It indexes functions,
+methods and calls into the same graph, but deliberately declares no generic
+request entry point: C++ server frameworks do not share a reliable source
+annotation or registration shape. Framework adapters can add those signals
+later without changing the shared traversal.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -67,6 +73,7 @@ from scanner.callgraph.go_entrypoints import HANDLER_PARAM_TYPES
 from scanner.callgraph.go_entrypoints import HTTP_METHOD_NAMES as GO_HTTP_METHOD_NAMES
 from scanner.callgraph.go_index import index_go_workspace
 from scanner.callgraph.index import IDENTIFIER_LITERAL, index_workspace
+from scanner.callgraph.cpp_index import index_cpp_workspace
 from scanner.callgraph.js_entrypoints import HTTP_METHOD_NAMES, NEST_DECORATOR_NAMES
 from scanner.callgraph.js_index import index_js_workspace
 from scanner.callgraph.model import ANY_ARITY, MAX_DEPTH, Call, Index, Method, Owner
@@ -82,6 +89,7 @@ __all__ = [
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
     "ROUTE_DECORATOR_NAMES", "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
-    "index_go_workspace", "index_js_workspace", "index_mybatis_mappers", "index_python_workspace",
-    "index_workspace", "trace_to_entry_points",
+    "index_cpp_workspace", "index_go_workspace", "index_js_workspace", "index_mybatis_mappers",
+    "index_python_workspace", "index_workspace",
+    "trace_to_entry_points",
 ]

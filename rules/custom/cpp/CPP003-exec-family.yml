@@ -1,0 +1,17 @@
+rules:
+  - id: CPP003
+    languages: [cpp]
+    severity: ERROR
+    message: Process-execution API may execute an attacker-controlled command or program.
+    metadata:
+      name: Process execution interface
+      description: Detects popen and the POSIX exec function family.
+      confidence: HIGH
+      hawkeye_language: cpp
+      hawkeye_validator: standard-function-call
+      cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]
+    patterns:
+      - pattern: $FUNC(...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: '^(?:::)?(?:popen|execl|execlp|execle|execv|execvp|execve)$'
