@@ -5,6 +5,7 @@ worker, one scan at a time) per docs/framework.md's "单用户同一时刻通常
 跑一个扫描" simplification — no distributed queue.
 """
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
@@ -53,9 +54,44 @@ class PipelineCancelled(Exception):
     different states on the scan row."""
 
 
+# How often a paused scan checks whether it has been resumed (or cancelled
+# out of the pause). Not the responsiveness of pause/resume itself, which
+# depends on how far apart the checkpoints below already are -- this is
+# just the cost of sitting still, and a scan can sit paused for however
+# long the user leaves it.
+PAUSE_POLL_SECONDS = 0.5
+
+
+def _wait_while_paused(should_pause: Callable[[], bool], should_cancel: Callable[[], bool],
+                       on_pause_change: Callable[[bool], None]) -> None:
+    """Blocks the calling thread while `should_pause()` says so, checking
+    `should_cancel()` on every tick so a paused scan can still be
+    cancelled rather than sitting there until timed out. `on_pause_change`
+    is told when the wait starts and ends -- not whether it ended in a
+    resume or a cancel, which the caller's own should_cancel() check right
+    after this call already distinguishes.
+
+    Not a threading.Event: pause/resume/cancel are all requests recorded in
+    an in-memory registry the API layer owns (apps/api/cancel.py's own
+    docstring explains why in-memory is enough), and polling that registry
+    at the same checkpoints should_cancel() already uses keeps pause on the
+    identical footing rather than adding a second signalling mechanism.
+    """
+    if not should_pause():
+        return
+    on_pause_change(True)
+    try:
+        while should_pause() and not should_cancel():
+            time.sleep(PAUSE_POLL_SECONDS)
+    finally:
+        on_pause_change(False)
+
+
 def verify_all(candidates, workspace_dir, index, template, provider, model, concurrency: int = 1,
                on_progress: Callable[[int, int], None] = lambda done, total: None,
                should_cancel: Callable[[], bool] = lambda: False,
+               should_pause: Callable[[], bool] = lambda: False,
+               on_pause_change: Callable[[bool], None] = lambda paused: None,
                on_halt: Callable[[str], None] = lambda reason: None):
     """The verify stage, `concurrency` calls in flight at a time.
 
@@ -89,7 +125,10 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
     def verify_one(candidate):
         # Checked per candidate rather than per stage: this is the long one,
         # and a scan the user asked to delete should not keep spending LLM
-        # calls for the minutes the rest of it would take.
+        # calls for the minutes the rest of it would take. Pause is checked
+        # here for the same reason -- candidates in flight finish, but the
+        # next one waits.
+        _wait_while_paused(should_pause, should_cancel, on_pause_change)
         if should_cancel():
             raise PipelineCancelled()
         # Once the endpoint has stopped answering, the queued candidates are
@@ -152,6 +191,8 @@ def run_pipeline(
     on_status: Callable[[str], None] = lambda status: None,
     on_progress: Callable[[int, int], None] = lambda done, total: None,
     should_cancel: Callable[[], bool] = lambda: False,
+    should_pause: Callable[[], bool] = lambda: False,
+    on_pause_change: Callable[[bool], None] = lambda paused: None,
     translate: bool = True,
     concurrency: int = 1,
 ) -> dict:
@@ -162,10 +203,21 @@ def run_pipeline(
     report -- the candidates it never reached are counted as `unverified` in
     the summary -- so it is a completed scan carrying a caveat, not a failed
     one. Raises PipelineError on failure; callers are responsible for
-    recording Scan.status = "failed"."""
+    recording Scan.status = "failed".
+
+    `should_pause` is checked at the same checkpoints `should_cancel`
+    already is (between stages, and between candidates in the verify
+    stage), blocking this thread until it goes back to False or
+    `should_cancel` goes True. `on_pause_change` fires True right before
+    the wait starts and False right after it ends, so a caller can reflect
+    "paused" somewhere (a DB column, say) without this module knowing
+    anything about where that state lives -- the same separation
+    `on_status`/`on_progress` already keep.
+    """
     ensure_data_dir()
 
     def checkpoint() -> None:
+        _wait_while_paused(should_pause, should_cancel, on_pause_change)
         if should_cancel():
             raise PipelineCancelled()
 
@@ -207,6 +259,7 @@ def run_pipeline(
     try:
         verified = verify_all(candidates, workspace_dir, index, template, provider, model, concurrency,
                               on_progress=on_progress, should_cancel=should_cancel,
+                              should_pause=should_pause, on_pause_change=on_pause_change,
                               on_halt=halted.append)
     except PipelineCancelled:
         # Reaches here from a worker thread through executor.map, and must

@@ -120,7 +120,8 @@ class TestProjectsAndScans:
 
         def fake_run_pipeline(zip_path, workspace_dir, report_dir, project_name, provider, model,
                               on_status=lambda s: None, on_progress=lambda done, total: None,
-                              should_cancel=lambda: False, translate=True, concurrency=1):
+                              should_cancel=lambda: False, should_pause=lambda: False,
+                              on_pause_change=lambda paused: None, translate=True, concurrency=1):
             translate_flags.append(translate)
             concurrencies.append(concurrency)
             on_status("done")
@@ -265,6 +266,86 @@ class TestDeleteScan:
         assert [p["id"] for p in client.get("/projects").json()] == [project_id]
         assert (tmp_path / "uploads" / f"{project_id}.zip").exists()
         assert len(client.get(f"/projects/{project_id}/scans").json()) == 1
+
+
+class TestPauseResumeScan:
+    """POST /scans/{id}/pause and /resume. Same reasoning as TestDeleteScan
+    for building rows straight in the database: there is no real background
+    task to actually pause here, so these exercise the endpoints' own
+    request/timeout/response logic, not scanner/pipeline.py's -- that half
+    is tests/test_pause.py's job, against verify_all() directly.
+    """
+
+    def _scan(self, client, status="verifying"):
+        from apps.api import database as db_module, models
+
+        upload = client.post("/uploads", files={"file": ("demo.zip", make_zip_bytes(), "application/zip")})
+        project_id = upload.json()["id"]
+
+        db = db_module.SessionLocal()
+        scan = models.Scan(project_id=project_id, status=status)
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+        db.close()
+        return scan_id
+
+    def test_pause_missing_scan_is_404(self, client):
+        assert client.post("/scans/nope/pause").status_code == 404
+
+    def test_pause_a_terminal_scan_is_409(self, client):
+        scan_id = self._scan(client, status="done")
+
+        assert client.post(f"/scans/{scan_id}/pause").status_code == 409
+
+    def test_pausing_an_already_paused_scan_returns_immediately(self, client):
+        """No background task will ever move this row out of "paused", so
+        if the endpoint did not recognise it as already there it would
+        block for the full PAUSE_TIMEOUT_SECONDS instead of answering at
+        once."""
+        scan_id = self._scan(client, status="paused")
+
+        resp = client.post(f"/scans/{scan_id}/pause")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "paused"
+
+    def test_pause_records_the_request_and_times_out_reporting_current_status(self, client, monkeypatch):
+        """A row stuck in "verifying" with nothing actually running behind
+        it never reaches a checkpoint that would flip it to "paused" -- the
+        endpoint should wait out its timeout and then answer with whatever
+        the status still is, not hang or error. Timeout shortened so this
+        does not cost the real 30s."""
+        from apps.api.pause import pauses
+        from apps.api.routers import scans as scans_router
+
+        monkeypatch.setattr(scans_router, "PAUSE_TIMEOUT_SECONDS", 0.3)
+        scan_id = self._scan(client, status="verifying")
+
+        resp = client.post(f"/scans/{scan_id}/pause")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "verifying"
+        assert pauses.is_requested(scan_id) is True
+
+    def test_resume_missing_scan_is_404(self, client):
+        assert client.post("/scans/nope/resume").status_code == 404
+
+    def test_resume_a_scan_that_is_not_paused_is_409(self, client):
+        scan_id = self._scan(client, status="verifying")
+
+        assert client.post(f"/scans/{scan_id}/resume").status_code == 409
+
+    def test_resume_clears_the_pause_request(self, client):
+        from apps.api.pause import pauses
+
+        scan_id = self._scan(client, status="paused")
+        pauses.request(scan_id)
+
+        resp = client.post(f"/scans/{scan_id}/resume")
+
+        assert resp.status_code == 200
+        assert pauses.is_requested(scan_id) is False
 
 
 class TestExportReport:

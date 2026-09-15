@@ -2,6 +2,7 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from apps.api import models, schemas
 from apps.api.database import SessionLocal, get_db
 from apps.api.cancel import cancels
+from apps.api.pause import pauses
 from apps.api.progress import registry
 from apps.api.runlog import active_scan
 from llm_gateway.config import provider_and_model_from_config
@@ -23,8 +25,10 @@ router = APIRouter(tags=["scans"])
 
 # Everything that isn't a terminal state. A scan sitting in one of these has
 # a background task still writing to its workspace and report directory.
+# "paused" belongs here too: the pipeline thread is alive and blocked, not
+# gone, and the scan is exactly as deletable/cancellable as a running one.
 RUNNING_STATUSES = frozenset({"queued", "ingesting", "scanning", "indexing", "verifying",
-                              "translating", "reporting"})
+                              "translating", "reporting", "paused"})
 
 
 def _active_llm_config(db: Session) -> models.LLMConfig | None:
@@ -93,6 +97,40 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         def should_cancel() -> bool:
             return cancels.is_requested(scan_id)
 
+        def should_pause() -> bool:
+            return pauses.is_requested(scan_id)
+
+        # A fresh Session per call rather than reusing `db`: the verify
+        # stage can run several worker threads at once (`concurrency` in
+        # the LLM config), each hitting this same checkpoint, and `db`
+        # belongs to this function's own thread -- SQLAlchemy sessions are
+        # not safe to share across threads (see apps/api/progress.py's own
+        # docstring for the same constraint on the progress counters).
+        # `pause_lock` guards `status_before_pause` instead of the DB write
+        # itself, and is checked against the freshly-read status rather
+        # than a push/pop stack, so a burst of same-valued calls from
+        # multiple workers is idempotent: only the first True in a pause
+        # records what to restore, and only the first False restores it.
+        pause_lock = Lock()
+        status_before_pause: list[str] = []
+
+        def on_pause_change(paused: bool) -> None:
+            session = SessionLocal()
+            try:
+                with pause_lock:
+                    current = session.get(models.Scan, scan_id)
+                    if current is None:
+                        return
+                    if paused and current.status != "paused":
+                        status_before_pause.append(current.status)
+                        current.status = "paused"
+                        session.commit()
+                    elif not paused and current.status == "paused":
+                        current.status = status_before_pause.pop() if status_before_pause else "verifying"
+                        session.commit()
+            finally:
+                session.close()
+
         zip_path = UPLOADS_DIR / f"{project_id}.zip"
         workspace_dir = WORKSPACES_DIR / scan_id
         report_dir = REPORTS_DIR / scan_id
@@ -107,6 +145,8 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
             on_status=on_status,
             on_progress=on_progress,
             should_cancel=should_cancel,
+            should_pause=should_pause,
+            on_pause_change=on_pause_change,
             # Off because it is a second full LLM pass over every finding,
             # and measured on this machine it costs about as much wall clock
             # as the verify stage it follows (median 8.4s vs 7.9s per call),
@@ -156,6 +196,7 @@ def _run_scan(scan_id: str, project_id: str, source_zip_filename: str) -> None:
         active_scan.set(None)
         registry.clear(scan_id)
         cancels.clear(scan_id)
+        pauses.clear(scan_id)
         db.close()
 
 
@@ -219,6 +260,53 @@ def _with_progress(scan: models.Scan) -> schemas.ScanOut:
         "stage_total": snapshot.total,
         "stage_elapsed": round(snapshot.stage_elapsed, 1),
     })
+
+
+# How long a pause request waits for the pipeline to actually stop moving
+# before answering. Not instant: the checkpoint it is caught at might be
+# behind a whole semgrep run or an LLM call already in flight, not just the
+# next verify-stage candidate -- same reasoning as CANCEL_TIMEOUT_SECONDS
+# below, and given the same value since neither wait is bounded by anything
+# shorter than "whatever step is currently running finishes".
+PAUSE_TIMEOUT_SECONDS = 30.0
+
+
+@router.post("/scans/{scan_id}/pause", response_model=schemas.ScanOut)
+def pause_scan(scan_id: str, db: Session = Depends(get_db)):
+    scan = db.get(models.Scan, scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    if scan.status not in RUNNING_STATUSES:
+        raise HTTPException(409, f"scan is not running, status is '{scan.status}'")
+
+    pauses.request(scan_id)
+    if scan.status != "paused":
+        deadline = time.monotonic() + PAUSE_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            db.expire_all()
+            scan = db.get(models.Scan, scan_id)
+            if scan is None or scan.status not in RUNNING_STATUSES or scan.status == "paused":
+                break
+            time.sleep(0.25)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    return _with_progress(scan)
+
+
+@router.post("/scans/{scan_id}/resume", response_model=schemas.ScanOut)
+def resume_scan(scan_id: str, db: Session = Depends(get_db)):
+    """Does not wait for the pipeline to actually pick back up -- unlike
+    pausing, there is nothing in flight to wait out, just the next poll of
+    `should_pause()` (at most PAUSE_POLL_SECONDS away), and the frontend's
+    own polling loop shows the real status moments later regardless."""
+    scan = db.get(models.Scan, scan_id)
+    if scan is None:
+        raise HTTPException(404, "scan not found")
+    if scan.status != "paused":
+        raise HTTPException(409, f"scan is not paused, status is '{scan.status}'")
+
+    pauses.resume(scan_id)
+    return _with_progress(scan)
 
 
 @router.get("/scans/{scan_id}/report", response_model=schemas.ReportOut)

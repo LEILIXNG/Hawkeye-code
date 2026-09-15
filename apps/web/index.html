@@ -266,6 +266,7 @@
   .pill-failed { background: var(--danger-soft); color: var(--danger); }
   .pill-active { background: var(--success-soft); color: var(--success); }
   .pill-progress { background: var(--warning-soft); color: var(--warning); }
+  .pill-paused { background: var(--primary-soft); color: var(--primary); }
   .pill-cancelled { background: var(--border); color: var(--text-muted); }
   .risk-critical { background: var(--danger); color: #fff; }
   .risk-high { background: var(--danger-soft); color: var(--danger); }
@@ -611,13 +612,15 @@ const I18N = {
       reportFailed: (rest) => `生成报告失败：${rest}`,
       internal: (rest) => `内部错误：${rest}`,
     },
-    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", indexing: "构建调用图中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败", cancelled: "已取消" },
+    status: { queued: "排队中", ingesting: "解压中", scanning: "扫描中", indexing: "构建调用图中", verifying: "LLM 复核中", translating: "翻译中", reporting: "生成报告中", done: "扫描完成", failed: "扫描失败", cancelled: "已取消", paused: "已暂停" },
     progress: {
       steps: { ingesting: "解压", scanning: "扫描", indexing: "调用图", verifying: "LLM 复核", translating: "翻译", reporting: "报告" },
       elapsed: (clock) => `已用 ${clock}`,
       count: (done, total) => `${done}/${total}`,
       eta: (clock) => `预计剩余 ${clock}`,
       etaUnknown: "预计剩余 --:--",
+      pauseBtn: "暂停", resumeBtn: "继续", pausing: "正在暂停...", resuming: "正在继续...",
+      pauseFail: (e) => `暂停失败: ${e}`, resumeFail: (e) => `继续失败: ${e}`,
     },
     reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败", unverified: "未复核" },
     risk: { critical: "致命", high: "高危", medium: "中危", low: "低危" },
@@ -696,13 +699,15 @@ const I18N = {
       reportFailed: (rest) => `Rendering the report failed: ${rest}`,
       internal: (rest) => `Internal error: ${rest}`,
     },
-    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", indexing: "Building call graph", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed", cancelled: "Cancelled" },
+    status: { queued: "Queued", ingesting: "Extracting", scanning: "Scanning", indexing: "Building call graph", verifying: "LLM verifying", translating: "Translating", reporting: "Rendering report", done: "Scan complete", failed: "Scan failed", cancelled: "Cancelled", paused: "Paused" },
     progress: {
       steps: { ingesting: "Extract", scanning: "Scan", indexing: "Call graph", verifying: "Verify", translating: "Translate", reporting: "Report" },
       elapsed: (clock) => `${clock} elapsed`,
       count: (done, total) => `${done}/${total}`,
       eta: (clock) => `${clock} left`,
       etaUnknown: "--:-- left",
+      pauseBtn: "Pause", resumeBtn: "Resume", pausing: "Pausing...", resuming: "Resuming...",
+      pauseFail: (e) => `Pause failed: ${e}`, resumeFail: (e) => `Resume failed: ${e}`,
     },
     reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed", unverified: "Not verified" },
     risk: { critical: "Critical", high: "High", medium: "Medium", low: "Low" },
@@ -1040,6 +1045,12 @@ const TOTAL_WEIGHT = Object.values(STEP_WEIGHTS).reduce((a, b) => a + b, 0);
 let lastActiveStep = -1;
 let elapsedTimer = null;
 let scanRunning = false;
+// The pause/resume button reads this rather than a value passed at click
+// time -- pollScanTask's own `current` is local to its loop, and the
+// button is wired up once in beginTaskProgress, before that loop has ever
+// run a tick.
+let currentTaskScan = null;
+let pauseRequestInFlight = false;
 
 function formatClock(ms) {
   const total = Math.floor(ms / 1000);
@@ -1048,7 +1059,12 @@ function formatClock(ms) {
 
 function overallFraction(status, progress) {
   if (status === "done") return 1;
-  const idx = PIPELINE_STEPS.indexOf(status);
+  // "paused" is not one of PIPELINE_STEPS -- it is a pause of whichever
+  // stage was running, not a stage of its own -- so the bar reads off the
+  // last real stage instead of snapping to empty and back on every
+  // pause/resume.
+  const effective = status === "paused" && lastActiveStep >= 0 ? PIPELINE_STEPS[lastActiveStep] : status;
+  const idx = PIPELINE_STEPS.indexOf(effective);
   if (idx < 0) return 0;
   const passed = PIPELINE_STEPS.slice(0, idx).reduce((sum, step) => sum + STEP_WEIGHTS[step], 0);
   const within = progress && progress.total > 0 ? progress.done / progress.total : 0.5;
@@ -1136,6 +1152,8 @@ function taskProgressHtml() {
     + `<span class="pstep-elapsed" id="step-elapsed"></span>`
     + `<span class="pstep-elapsed" id="step-count"></span>`
     + `<span class="pstep-elapsed" id="step-eta"></span>`
+    + `<button class="small" id="pause-resume-btn" type="button" hidden></button>`
+    + `<span class="pstep-elapsed" id="pause-msg"></span>`
     + `</div>`
     + `<div class="task-log" id="task-log">`
     + `<div class="task-log-head" id="task-log-toggle" role="button" tabindex="0" aria-expanded="true">`
@@ -1147,15 +1165,54 @@ function taskProgressHtml() {
 
 function beginTaskProgress(scan) {
   lastActiveStep = -1;
+  currentTaskScan = scan;
+  pauseRequestInFlight = false;
   $("detail-body").innerHTML = taskProgressHtml();
   $("task-log-toggle").addEventListener("click", toggleTaskLog);
   $("task-log-toggle").addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleTaskLog(); }
   });
+  $("pause-resume-btn").addEventListener("click", togglePauseResume);
   setTaskLogCollapsed(localStorage.getItem("hawkeye-task-log-collapsed") === "1");
   renderProgress(scan.status, null);
+  renderPauseButton(scan);
   startElapsed(scan.started_at);
   watchTaskLog(scan.id);
+}
+
+// Pause/resume is only offered while a scan is actually running -- both
+// TERMINAL_STATUSES and "queued" are excluded, the latter because nothing
+// is checking should_pause() yet for a scan still waiting for
+// BackgroundTasks to start it.
+function renderPauseButton(scan) {
+  const btn = $("pause-resume-btn");
+  if (!btn) return;
+  const offerable = !TERMINAL_STATUSES.has(scan.status) && scan.status !== "queued";
+  btn.hidden = !offerable;
+  if (!offerable) return;
+  btn.disabled = pauseRequestInFlight;
+  btn.textContent = scan.status === "paused" ? t("progress.resumeBtn") : t("progress.pauseBtn");
+}
+
+async function togglePauseResume() {
+  if (pauseRequestInFlight || !currentTaskScan) return;
+  const scan = currentTaskScan;
+  const resuming = scan.status === "paused";
+  pauseRequestInFlight = true;
+  renderPauseButton(scan);
+  setMsg($("pause-msg"), resuming ? t("progress.resuming") : t("progress.pausing"), "");
+  try {
+    const updated = await api(`/scans/${scan.id}/${resuming ? "resume" : "pause"}`, { method: "POST" });
+    currentTaskScan = updated;
+    setMsg($("pause-msg"), "", "");
+    renderProgress(updated.status, scanProgress(updated));
+    updateHistoryRow(updated);
+  } catch (e) {
+    setMsg($("pause-msg"), (resuming ? t("progress.resumeFail") : t("progress.pauseFail"))(localizeError(e.message)), "err");
+  } finally {
+    pauseRequestInFlight = false;
+    renderPauseButton(currentTaskScan);
+  }
 }
 
 function scanProgress(scan) {
@@ -1177,6 +1234,13 @@ async function pollScanTask(project, scan) {
   while (activeScanPoll === token) {
     renderProgress(current.status, scanProgress(current));
     updateHistoryRow(current);
+    // Left alone while a pause/resume click owns it, so the button does not
+    // flicker back to its pre-click label between the request going out and
+    // its response landing.
+    if (!pauseRequestInFlight) {
+      currentTaskScan = current;
+      renderPauseButton(current);
+    }
 
     if (TERMINAL_STATUSES.has(current.status)) {
       scanRunning = false;
@@ -1205,7 +1269,8 @@ function updateHistoryRow(scan) {
   if (!row) return;
   const cls = scan.status === "done" ? "pill-done"
     : scan.status === "failed" ? "pill-failed"
-    : scan.status === "cancelled" ? "pill-cancelled" : "pill-progress";
+    : scan.status === "cancelled" ? "pill-cancelled"
+    : scan.status === "paused" ? "pill-paused" : "pill-progress";
   row.children[1].innerHTML = `<span class="pill ${cls}">${statusLabel(scan.status)}</span>`;
   const title = $("detail-title");
   if (row.classList.contains("selected") && title) {
@@ -1249,7 +1314,8 @@ async function loadHistory() {
     tr.dataset.scanId = scan.id;
     const pillClass = scan.status === "done" ? "pill-done"
       : scan.status === "failed" ? "pill-failed"
-      : scan.status === "cancelled" ? "pill-cancelled" : "pill-progress";
+      : scan.status === "cancelled" ? "pill-cancelled"
+      : scan.status === "paused" ? "pill-paused" : "pill-progress";
     const statusPill = `<span class="pill ${pillClass}">${statusLabel(scan.status)}</span>`;
     tr.innerHTML = `<td>${esc(project.name)}</td><td>${statusPill}</td><td title="${esc(scan.started_at ?? "")}">${esc(localTime(scan.started_at))}</td><td>${t("history.view")}</td>`
       + `<td><button class="small danger-btn" data-delete-scan="${scan.id}">${t("history.delete")}</button></td>`;
