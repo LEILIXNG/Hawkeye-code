@@ -52,6 +52,11 @@ class Method:
     end_line: int
     return_type: str = ""
     owner: Owner = field(default_factory=Owner)
+    # Optional language-specific signature information. Empty means the
+    # parser could not prove a type, so traversal keeps the edge instead of
+    # guessing. C++ uses this to separate same-arity overloads.
+    parameter_types: tuple[str, ...] = ()
+    parameter_names: tuple[str, ...] = ()
     overrides_supertype: bool = False
     entry_reason: str = ""
     # Whether entry_reason is proof or only a hint. A mapping annotation, or
@@ -81,6 +86,14 @@ class Call:
     # different module's OracleAQConsumer.run(), inventing a chain from a
     # @KafkaListener to a JMS connector it has nothing to do with.
     receiver_is_self: bool = False
+    # A qualified/static receiver (Service::run) or the declared type of a
+    # local receiver (service.run). Empty keeps the historical conservative
+    # name+arity behaviour.
+    target_owner: str = ""
+    # Best-effort argument types. Unknown arguments are stored as empty
+    # strings and never remove an edge.
+    argument_types: tuple[str, ...] = ()
+    argument_symbols: tuple[str, ...] = ()
 
 
 @dataclass

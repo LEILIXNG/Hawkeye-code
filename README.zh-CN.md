@@ -105,13 +105,13 @@ python scripts/04_translate.py          # 可选
 python -m pytest tests/ -v
 ```
 
-536 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、五组语言的调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
+560 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、五组语言的调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
 
 ## 实现要点
 
-- **跨文件分析，五组语言。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 从 sink 反向沿调用者跨文件查找入口。Java、Python 和 JavaScript/TypeScript 保留各自的框架入口识别；Go 识别 net/http、gorilla/mux、chi、gin、echo 的路由注册；C++ 使用 tree-sitter 索引函数、方法和调用，但不猜测框架入口。混合语言项目共用同一张调用图。
-- **Semgrep 只出候选，LLM 下结论。** 每条判定都带 `reachable` / `sanitized` / `confidence` / `reasoning`，外加攻击场景和点名到行的具体修复方案。
-- **范围以数据流为准。** 命中代码静态属性的规则——弱哈希、Cookie 少标志位、证书校验被关掉——按 CWE 在花掉一次复核调用之前就被过滤掉。
+- **跨文件分析，五组语言。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 从 sink 反向沿调用者跨文件查找入口。Java、Python 和 JavaScript/TypeScript 保留各自的框架入口识别；Go 识别 net/http、gorilla/mux、chi、gin、echo 的路由注册。C++ 识别 Crow、Drogon、Oat++、gRPC 入口，并利用 tree-sitter 的类型、所有者、重载、模板调用、本地 include 宏和常见函数指针流减少歧义边。混合语言项目共用同一张调用图。
+- **Semgrep 出候选，LLM 判断数据流。** 请求驱动候选继续使用 `reachable` / `sanitized` / `confidence` / `reasoning` 契约；确定性的 C++ 内存、空指针、敏感信息和文件操作问题由规则验证器判断，标记为“静态确认”，不再交给 LLM 错判 HTTP 请求可达性。
+- **混合范围。** 通用静态属性规则仍按 CWE 排除；带确定性验证器的自定义规则可以显式进入静态判定通道。
 - **危险级别按 CVSS 定，不看引擎自己的 severity。** Semgrep 只会给 ERROR/WARNING，区分不了未授权 SQL 注入和弱哈希。`scanner/cvss.py` 把每个 CWE 映射到一条 v3.1 基准向量并按公式算分，再由可达性给这个档位定级——被判定不可达的发现无论基准分多高都落到最低档。
 - **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，覆盖服务端 Java/Spring、Python、JavaScript/TypeScript 和 Go。`rules/custom` 现在共有 15 条规则，其中 8 条是 `CPP001`–`CPP008`。C++ 规则使用 Semgrep C++ AST；`.h` 只有检测到 C++ 专属内容后才接受其规则结果。
 
@@ -121,7 +121,8 @@ python -m pytest tests/ -v
 
 Phase 1 已完成——上传 → 扫描 → 报告全链路跑通。
 
-- `eval/labels.json` 现有 43 条人工标注：19 条 Java、9 条 Python、7 条 JavaScript 和 8 条 C++（`eval/fixtures/cpp_demo`）。C++ 标注明确区分确定性的规则命中与现有“请求可达性”结论，不假定某个 C++ Web 框架入口。
+- `eval/labels.json` 现有 43 条人工标注：19 条 Java、9 条 Python、7 条 JavaScript 和 8 条 C++（`eval/fixtures/cpp_demo`）。C++ 命令执行规则保留请求可达性判断；确定性的 CPP004–CPP008 使用静态判定通道。
+- C++ 解析只读取源码，不执行构建。必须依赖编译数据库才能确定的条件编译、生成代码、虚调用和复杂函数指针目标仍采取保守结果，不会伪装成完全精确。
 - 复核层在两次完全相同的重跑之间约有 16% 的判定会翻转，所以任何一组标注上 ±1 的变化都属于噪声。引擎改动一律用确定性指标论证。
 - Java 那部分已在一个真实的 13 模块 Maven 项目上实测过，不只跑教学靶场。
 

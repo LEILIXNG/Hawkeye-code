@@ -136,6 +136,25 @@ def verify_all(candidates, workspace_dir, index, template, provider, model, conc
         # ladder to arrive at the same place.
         if halted:
             return dict(candidate)
+        if candidate.get("verification_mode") == "static":
+            confidence = {"HIGH": 95, "MEDIUM": 75, "LOW": 55}.get(
+                str(candidate.get("rule_confidence", "")).upper(), 75
+            )
+            return {
+                **candidate,
+                "finding": {
+                    # Existing consumers require this enum. verdict_kind
+                    # distinguishes a deterministic static finding from an
+                    # HTTP source-to-sink reachability claim.
+                    "reachable": "yes",
+                    "verdict_kind": "static",
+                    "sanitized": False,
+                    "confidence": confidence,
+                    "reasoning": f"Static rule confirmed: {candidate.get('message', '')}",
+                    "exploit_scenario": "",
+                    "remediation": candidate.get("rule_remediation", ""),
+                },
+            }
         code_context = build_context(workspace_dir, candidate, index)
         prompt = build_prompt(template, candidate, code_context)
         try:

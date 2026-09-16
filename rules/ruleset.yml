@@ -150,6 +150,11 @@ exclude_rules: []
 # runs these rules; what is saved is the verify call and the report row,
 # which is where the cost actually is (~5.9s per candidate, plus rate-limit
 # budget on the free-tier endpoints).
+#
+# Custom rules with metadata.hawkeye_verification: static are the explicit
+# exception: their deterministic post-validator has already proved the code
+# property, so scanner/pipeline.py keeps them without asking the request-
+# reachability LLM a question that does not apply.
 out_of_scope_cwes:
   - CWE-295    # improper certificate validation (empty TrustManager, HostnameVerifier)
   - CWE-297    # improper validation of certificate with host mismatch

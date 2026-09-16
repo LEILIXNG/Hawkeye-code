@@ -111,13 +111,13 @@ Skip `04_translate.py` and the report reads in whichever language the model answ
 python -m pytest tests/ -v
 ```
 
-536 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph for all five language groups, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
+560 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph for all five language groups, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
 
 ## How it works
 
-- **Cross-file analysis, five language groups.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Java, Python and JavaScript/TypeScript retain their framework-specific entry recognizers; Go recognises net/http, gorilla/mux, chi, gin and echo route registrations; C++ uses tree-sitter to index functions, methods and calls without guessing a framework entry point. A mixed-language checkout indexes into one shared graph.
-- **Semgrep for candidates, LLM for verdicts.** Every verdict carries `reachable` / `sanitized` / `confidence` / `reasoning`, plus an exploit scenario and a concrete fix naming the line and the replacement.
-- **Dataflow-scoped.** Findings that match a static property — weak hash, missing cookie flag, disabled cert check — are filtered out by CWE before they cost a verify call.
+- **Cross-file analysis, five language groups.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Java, Python and JavaScript/TypeScript retain their framework-specific entry recognizers; Go recognises net/http, gorilla/mux, chi, gin and echo route registrations. C++ recognises Crow, Drogon, Oat++ and gRPC entries and uses tree-sitter types, owners, overloads, template calls, local include macros and common function-pointer flows to remove ambiguous edges. A mixed-language checkout indexes into one shared graph.
+- **Semgrep for candidates, LLM for dataflow verdicts.** Request-driven candidates keep the `reachable` / `sanitized` / `confidence` / `reasoning` contract. Deterministic C++ memory, null, secret and file-operation findings use rule validators and are labelled **Statically confirmed** without an irrelevant request-reachability LLM call.
+- **Hybrid scope.** Generic static-property findings remain excluded by CWE, while custom rules carrying a deterministic validator can explicitly opt into the static-verdict path.
 - **Risk from CVSS, not from the engine's own severity.** Semgrep grades everything ERROR or WARNING, which cannot separate an unauthenticated SQL injection from a weak hash. `scanner/cvss.py` maps each CWE to a v3.1 base vector and computes the score from it; reachability then grades that band, so a finding proved unreachable ends up lowest whatever it scored.
 - **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated for server-side Java/Spring, Python, JavaScript/TypeScript and Go. Fifteen custom rules under `rules/custom` add project-specific Java/XML coverage plus eight C++ checks (`CPP001`–`CPP008`). C++ rules use Semgrep's C++ AST; `.h` files require C++-specific content before their findings are accepted.
 
@@ -127,7 +127,8 @@ Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 
 Phase 1 is done — upload → scan → report works end to end.
 
-- 43 hand-labeled candidates in `eval/labels.json`: 19 Java, 9 Python, 7 JavaScript and 8 C++ (`eval/fixtures/cpp_demo`). The C++ labels distinguish deterministic rule matches from the existing request-reachability verdict; no C++ framework entry point is assumed.
+- 43 hand-labeled candidates in `eval/labels.json`: 19 Java, 9 Python, 7 JavaScript and 8 C++ (`eval/fixtures/cpp_demo`). C++ command-execution rules retain request reachability; deterministic CPP004–CPP008 findings use the static-verdict path.
+- C++ resolution is source based and deliberately does not execute a build. Conditional compilation, generated code and virtual/function-pointer targets that require a compiler database remain conservative rather than pretending to be exact.
 - The verifier flips roughly 16% of verdicts between identical re-runs, so a ±1 move on any label set is noise. Engine changes are argued with deterministic counts instead.
 - Java measured on a real 13-module Maven application, not only on a teaching target.
 

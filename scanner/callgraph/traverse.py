@@ -1,6 +1,38 @@
 """Walking the graph backwards: from a sink location to the request entry
 points that can reach it."""
+import re
+
 from scanner.callgraph.model import ANY_ARITY, MAX_DEPTH, Call, Index, Method
+
+
+def _short_type(value: str) -> str:
+    value = re.sub(r"\b(?:const|volatile|signed|unsigned)\b", " ", value)
+    for token in ("*", "&", "&&"):
+        value = value.replace(token, " ")
+    value = " ".join(value.split())
+    return value.split("::")[-1] if value else ""
+
+
+def _typed_call_can_reach(call: Call, method: Method) -> bool:
+    if call.target_owner and method.owner.name:
+        if _short_type(call.target_owner) != _short_type(method.owner.name):
+            return False
+    if not call.argument_types or not method.parameter_types:
+        return True
+    if len(call.argument_types) != len(method.parameter_types):
+        return True
+    numeric = {"short", "int", "long", "float", "double", "size_t"}
+    strings = {"string-literal", "char", "string", "string_view"}
+    for actual, expected in zip(call.argument_types, method.parameter_types):
+        left, right = _short_type(actual), _short_type(expected)
+        if not left or not right or left == right or re.fullmatch(r"[A-Z]\w*", right):
+            continue
+        if left in numeric and right in numeric:
+            continue
+        if left in strings and right in strings:
+            continue
+        return False
+    return True
 
 
 def enclosing_method(index: Index, file: str, line: int) -> Method | None:
@@ -40,7 +72,8 @@ def callers_of(index: Index, method: Method) -> list[Call]:
             if c.callee == method.name
             and (method.arity == ANY_ARITY or c.arity == method.arity)
             and c.caller is not None
-            and (not c.receiver_is_self or _self_call_can_reach(index, c, method))]
+            and (not c.receiver_is_self or _self_call_can_reach(index, c, method))
+            and _typed_call_can_reach(c, method)]
 
 
 def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = MAX_DEPTH) -> list[list[Call]]:
@@ -74,14 +107,15 @@ def trace_to_entry_points(index: Index, file: str, line: int, max_depth: int = M
         return [[]]
 
     found: list[list[Call]] = []
-    visited = {(start.file, start.name, start.arity)}
+    visited = {(start.file, start.owner.name, start.name, start.arity, start.parameter_types)}
     frontier: list[tuple[Method, list[Call]]] = [(start, [])]
     for _ in range(max_depth):
         next_frontier: list[tuple[Method, list[Call]]] = []
         for method, chain in frontier:
             for call in callers_of(index, method):
                 caller = call.caller
-                key = (caller.file, caller.name, caller.arity)
+                key = (caller.file, caller.owner.name, caller.name, caller.arity,
+                       caller.parameter_types)
                 if key in visited:
                     continue
                 visited.add(key)

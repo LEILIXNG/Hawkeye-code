@@ -2,21 +2,18 @@ rules:
   - id: CPP006
     languages: [cpp]
     severity: ERROR
-    message: Pointer initialized to nullptr is dereferenced without an intervening assignment.
+    message: Pointer whose latest known value is null is dereferenced.
     metadata:
       name: Obvious null-pointer dereference
-      description: Detects a local nullptr initialization followed by a direct dereference.
+      description: Detects nullptr, NULL, zero and simple alias states before member, raw or indexed dereferences.
       confidence: HIGH
       hawkeye_language: cpp
+      hawkeye_validator: null-dereference
+      hawkeye_verification: static
+      hawkeye_remediation: Check the pointer before dereferencing it or replace nullable ownership with a type that makes the empty state explicit.
       cwe: ["CWE-476: NULL Pointer Dereference"]
-    patterns:
-      - pattern-inside: |
-          $T *$PTR = nullptr;
-          ...
+    pattern-either:
       - pattern: $PTR->$METHOD(...)
-      - pattern-not-inside: |
-          $T *$PTR = nullptr;
-          ...
-          $PTR = $VALUE;
-          ...
-          $PTR->$METHOD(...);
+      - pattern: $PTR->$FIELD
+      - pattern: "*$PTR"
+      - pattern: $PTR[$INDEX]

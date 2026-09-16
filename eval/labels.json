@@ -230,31 +230,31 @@
   {
     "file": "vulnerabilities.cpp",
     "line": 23,
-    "expected_reachable": "no",
-    "note": "cpp_demo CPP004: memcpy is intentionally a potential-risk candidate and has no proven request path here"
+    "expected_reachable": "yes",
+    "note": "cpp_demo CPP004: an unknown memcpy bound is retained as a static review finding instead of being misclassified by HTTP request reachability"
   },
   {
     "file": "vulnerabilities.cpp",
     "line": 28,
-    "expected_reachable": "no",
-    "note": "cpp_demo CPP005: new[]/delete mismatch is a static memory-management defect, outside the verifier's source-to-sink reachability question"
+    "expected_reachable": "yes",
+    "note": "cpp_demo CPP005: the deterministic new[]/delete mismatch is confirmed through the static-verdict path without an LLM call"
   },
   {
     "file": "vulnerabilities.cpp",
     "line": 33,
-    "expected_reachable": "no",
-    "note": "cpp_demo CPP006: local nullptr dereference is a static defect with no external source-to-sink flow"
+    "expected_reachable": "yes",
+    "note": "cpp_demo CPP006: the deterministic null dereference is confirmed through the static-verdict path without an LLM call"
   },
   {
     "file": "vulnerabilities.cpp",
     "line": 37,
-    "expected_reachable": "no",
-    "note": "cpp_demo CPP007: hard-coded credential is a static property and therefore not request-reachable"
+    "expected_reachable": "yes",
+    "note": "cpp_demo CPP007: the hard-coded credential is retained as a confirmed static finding rather than downgraded for lacking request dataflow"
   },
   {
     "file": "vulnerabilities.cpp",
     "line": 41,
-    "expected_reachable": "no",
-    "note": "cpp_demo CPP008: chmod 0777 is a static permission issue rather than a user-controlled dataflow"
+    "expected_reachable": "yes",
+    "note": "cpp_demo CPP008: the insecure permission is retained as a confirmed static finding rather than downgraded for lacking request dataflow"
   }
 ]

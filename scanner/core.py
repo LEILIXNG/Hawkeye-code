@@ -15,7 +15,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from scanner.common import sha256
-from scanner.cpp_validators import passes_cpp_validator
+from scanner.cpp_validators import cpp_candidate_details, passes_cpp_validator
 from scanner.languages import is_cpp_path
 
 # Re-exported so `from scanner.core import build_context` keeps working for
@@ -243,6 +243,7 @@ def normalize(raw: dict, target: Path) -> list[dict]:
                 continue
         if not passes_cpp_validator(result, target):
             continue
+        cpp_details = cpp_candidate_details(result, target)
         dedup_key = sha256(f"{source_file}:{source_line}:{sink_file}:{sink_line}")
 
         start = result.get("start", {})
@@ -250,7 +251,7 @@ def normalize(raw: dict, target: Path) -> list[dict]:
 
         candidates.append({
             "rule_id": result.get("check_id"),
-            "message": extra.get("message", "").strip(),
+            "message": cpp_details.get("message", extra.get("message", "").strip()),
             "severity": extra.get("severity"),
             "cwe": metadata.get("cwe"),
             "owasp": metadata.get("owasp"),
@@ -264,6 +265,10 @@ def normalize(raw: dict, target: Path) -> list[dict]:
             "code_snippet": _matched_source(result, target),
             "dedup_key": dedup_key,
             "is_intraprocedural": is_intraprocedural,
+            "verification_mode": metadata.get("hawkeye_verification", "dataflow"),
+            "rule_confidence": cpp_details.get("rule_confidence", metadata.get("confidence")),
+            "rule_remediation": metadata.get("hawkeye_remediation", ""),
+            "static_analysis": cpp_details.get("static_analysis"),
         })
     return candidates
 
@@ -327,6 +332,10 @@ def dedup(candidates: list[dict]) -> list[dict]:
         else:
             merged[key]["rule_ids"].append(c["rule_id"])
             merged[key]["messages"].append(c["message"])
+            if c.get("verification_mode") != merged[key].get("verification_mode"):
+                # A dataflow rule sharing the location still needs its
+                # source-to-sink judgement; only all-static groups bypass it.
+                merged[key]["verification_mode"] = "dataflow"
     return list(merged.values())
 
 

@@ -7,6 +7,7 @@ from scanner.render.verdicts import _cwe_text, risk_level, short_location, verdi
 def _card_html(item: dict) -> str:
     finding = item.get("finding") or {}
     badge_key = filter_bucket = verdict_of(item)
+    label_key = "static" if finding.get("verdict_kind") == "static" else badge_key
     badge_class = {"yes": "badge-yes", "no": "badge-no", "failed": "badge-failed",
                    "unverified": "badge-unverified"}.get(badge_key, "badge-uncertain")
 
@@ -23,7 +24,7 @@ def _card_html(item: dict) -> str:
     <details class="card" data-bucket="{filter_bucket}" data-type="{html.escape(vuln_type)}"
               data-file="{html.escape(item["sink_file"])}" data-severity="{risk}">
       <summary title="{html.escape(item["sink_file"])}:{item["sink_line"]}">
-        <span class="badge {badge_class}" data-i18n="reachable.{badge_key}"></span>
+        <span class="badge {badge_class}" data-i18n="reachable.{label_key}"></span>
         <span class="vuln-type">{html.escape(vuln_type)}</span>
         <span class="severity risk-{risk}" data-i18n="risk.{risk}" title="CVSS {score:.1f} (CVSS:3.1/{html.escape(vector)}) · Semgrep: {html.escape(severity)}"></span>
         <span class="cvss" title="CVSS:3.1/{html.escape(vector)}">CVSS {score:.1f}</span>

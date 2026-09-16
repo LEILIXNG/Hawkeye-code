@@ -5,10 +5,12 @@ rules:
     message: "Potential memory-copy risk: verify that the memcpy length does not exceed the destination buffer size."
     metadata:
       name: Potential unsafe memory copy
-      description: Flags memcpy for size review without claiming a definite overflow.
+      description: Compares known destination capacities and copy lengths, retaining unknown cases for review.
       confidence: MEDIUM
       hawkeye_language: cpp
-      hawkeye_validator: standard-function-call
+      hawkeye_validator: [standard-function-call, memcpy-bounds]
+      hawkeye_verification: static
+      hawkeye_remediation: Use the destination capacity as the upper bound and reject or truncate larger copy lengths.
       cwe: ["CWE-120: Buffer Copy without Checking Size of Input"]
     patterns:
       - pattern: $FUNC(...)
