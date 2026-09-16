@@ -622,7 +622,7 @@ const I18N = {
       pauseBtn: "暂停", resumeBtn: "继续", pausing: "正在暂停...", resuming: "正在继续...",
       pauseFail: (e) => `暂停失败: ${e}`, resumeFail: (e) => `继续失败: ${e}`,
     },
-    reachable: { yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败", unverified: "未复核" },
+    reachable: { yes: "可达", static: "静态确认", no: "不可达", uncertain: "不确定", failed: "复核失败", unverified: "未复核" },
     risk: { critical: "致命", high: "高危", medium: "中危", low: "低危" },
     filters: { all: "全部", yes: "可达", no: "不可达", uncertain: "不确定", failed: "复核失败", unverified: "未复核" },
     stats: { reachable: "可达漏洞", safe: "安全数量", needsReview: "需要人工复查" },
@@ -709,7 +709,7 @@ const I18N = {
       pauseBtn: "Pause", resumeBtn: "Resume", pausing: "Pausing...", resuming: "Resuming...",
       pauseFail: (e) => `Pause failed: ${e}`, resumeFail: (e) => `Resume failed: ${e}`,
     },
-    reachable: { yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed", unverified: "Not verified" },
+    reachable: { yes: "Reachable", static: "Statically confirmed", no: "Not reachable", uncertain: "Uncertain", failed: "Verify failed", unverified: "Not verified" },
     risk: { critical: "Critical", high: "High", medium: "Medium", low: "Low" },
     filters: { all: "All", yes: "Reachable", no: "Not reachable", uncertain: "Uncertain", failed: "Failed", unverified: "Not verified" },
     stats: { reachable: "Reachable", safe: "Safe count", needsReview: "Needs manual review" },
@@ -1382,10 +1382,11 @@ function findingCardHtml(item) {
   const unverified = !finding.reachable && !finding.reasoning;
   const reachable = finding.reachable || "uncertain";
   const isFailed = (finding.reasoning || "").includes("verifier_failed");
+  const isStatic = finding.verdict_kind === "static";
   const bucket = unverified ? "unverified" : isFailed ? "failed" : reachable;
   const badgeClass = unverified ? "badge-unverified"
     : isFailed ? "badge-failed" : { yes: "badge-yes", no: "badge-no" }[reachable] || "badge-uncertain";
-  const badgeLabel = t(`reachable.${bucket}`) || bucket;
+  const badgeLabel = t(`reachable.${isStatic ? "static" : bucket}`) || bucket;
   const ruleIds = (item.rule_ids || [item.rule_id || ""]).join(", ");
   const messages = (item.messages || [item.message || ""]).join(" / ");
   // Both languages of an LLM field, swapped by applyStaticI18n() the same

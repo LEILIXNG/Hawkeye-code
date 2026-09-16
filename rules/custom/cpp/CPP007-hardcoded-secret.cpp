@@ -6,6 +6,12 @@ void bad() {
   const char *password;
   // ruleid: CPP007
   password = "hunter2";
+  const char *fallback = "compiled-default";
+  const char *token;
+  // ruleid: CPP007
+  token = fallback;
+  // ruleid: CPP007
+  std::string access_key = std::string("live-") + "key";
 }
 
 void good(const char *from_environment) {

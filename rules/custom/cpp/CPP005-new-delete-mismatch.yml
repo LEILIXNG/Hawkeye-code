@@ -9,21 +9,9 @@ rules:
       confidence: HIGH
       hawkeye_language: cpp
       hawkeye_validator: new-delete-mismatch
+      hawkeye_verification: static
+      hawkeye_remediation: Pair new[] with delete[] and scalar new with delete, preferably replacing ownership with RAII containers or smart pointers.
       cwe: ["CWE-762: Mismatched Memory Management Routines"]
     pattern-either:
-      - patterns:
-          - pattern-inside: |
-              $T *$PTR = new $U[$SIZE];
-              ...
-          - pattern: delete $PTR;
-          - pattern-not: delete[] $PTR;
-          - pattern-not-regex: '^\\s*delete\\s*\\[\\s*\\]'
-      - patterns:
-          - pattern-inside: |
-              $T *$PTR = new $U(...);
-              ...
-          - pattern: delete[] $PTR;
-          - pattern-not-inside: |
-              $T *$PTR = new $U[$SIZE];
-              ...
-              delete[] $PTR;
+      - pattern: delete $PTR;
+      - pattern: delete[] $PTR;

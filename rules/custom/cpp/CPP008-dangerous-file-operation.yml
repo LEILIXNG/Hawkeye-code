@@ -2,18 +2,25 @@ rules:
   - id: CPP008
     languages: [cpp]
     severity: WARNING
-    message: Overly permissive file mode or insecure temporary-file API can expose or overwrite files.
+    message: Overly permissive file mode or predictable writable temporary file can expose or overwrite files.
     metadata:
       name: Dangerous file or permission operation
-      description: Detects chmod mode 0777 and race-prone mktemp/tmpnam calls.
+      description: Detects world-writable chmod/open modes, race-prone temporary names and writable fopen calls to predictable temporary paths.
       confidence: HIGH
       hawkeye_language: cpp
-      hawkeye_validator: standard-function-call
+      hawkeye_validator: [standard-function-call, dangerous-file-operation]
+      hawkeye_verification: static
+      hawkeye_remediation: Use restrictive permissions and mkstemp or an equivalent atomic temporary-file API with a non-predictable name.
       cwe: ["CWE-377: Insecure Temporary File", "CWE-732: Incorrect Permission Assignment for Critical Resource"]
     pattern-either:
-      - pattern: chmod(..., 0777)
-      - pattern: ::chmod(..., 0777)
+      - pattern: chmod(...)
+      - pattern: ::chmod(...)
       - pattern: mktemp(...)
       - pattern: ::mktemp(...)
       - pattern: tmpnam(...)
       - pattern: ::tmpnam(...)
+      - pattern: fopen(...)
+      - pattern: ::fopen(...)
+      - pattern: std::fopen(...)
+      - pattern: open(...)
+      - pattern: ::open(...)
