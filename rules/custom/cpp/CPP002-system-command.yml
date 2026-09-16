@@ -1,0 +1,17 @@
+rules:
+  - id: CPP002
+    languages: [cpp]
+    severity: ERROR
+    message: system() executes a command through the operating-system shell.
+    metadata:
+      name: Shell command execution
+      description: Detects direct calls to the C/C++ system function.
+      confidence: HIGH
+      hawkeye_language: cpp
+      hawkeye_validator: standard-function-call
+      cwe: ["CWE-78: Improper Neutralization of Special Elements used in an OS Command"]
+    patterns:
+      - pattern: $FUNC(...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: '^(?:::)?(?:std::)?system$'

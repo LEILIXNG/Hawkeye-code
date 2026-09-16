@@ -208,5 +208,53 @@
     "line": 67,
     "expected_reachable": "no",
     "note": "express_demo: orphanVulnerableHelper() has the identical shell:true call as ping() (line 29) but nothing anywhere calls it -- tests not-reachable vs not-vulnerable"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 11,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP001: dangerous strcpy call is detected, but this isolated fixture has no request entry point or caller proving external control"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 15,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP002: system call is detected; no application entry point reaches the standalone function"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 19,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP003: execvp call is detected; reachability remains unproved in the isolated fixture"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 23,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP004: memcpy is intentionally a potential-risk candidate and has no proven request path here"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 28,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP005: new[]/delete mismatch is a static memory-management defect, outside the verifier's source-to-sink reachability question"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 33,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP006: local nullptr dereference is a static defect with no external source-to-sink flow"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 37,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP007: hard-coded credential is a static property and therefore not request-reachable"
+  },
+  {
+    "file": "vulnerabilities.cpp",
+    "line": 41,
+    "expected_reachable": "no",
+    "note": "cpp_demo CPP008: chmod 0777 is a static permission issue rather than a user-controlled dataflow"
   }
 ]

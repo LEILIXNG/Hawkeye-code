@@ -1,0 +1,22 @@
+rules:
+  - id: CPP006
+    languages: [cpp]
+    severity: ERROR
+    message: Pointer initialized to nullptr is dereferenced without an intervening assignment.
+    metadata:
+      name: Obvious null-pointer dereference
+      description: Detects a local nullptr initialization followed by a direct dereference.
+      confidence: HIGH
+      hawkeye_language: cpp
+      cwe: ["CWE-476: NULL Pointer Dereference"]
+    patterns:
+      - pattern-inside: |
+          $T *$PTR = nullptr;
+          ...
+      - pattern: $PTR->$METHOD(...)
+      - pattern-not-inside: |
+          $T *$PTR = nullptr;
+          ...
+          $PTR = $VALUE;
+          ...
+          $PTR->$METHOD(...);

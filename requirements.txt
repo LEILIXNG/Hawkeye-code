@@ -25,6 +25,7 @@ tree-sitter-python>=0.23
 tree-sitter-javascript>=0.23
 tree-sitter-typescript>=0.23
 tree-sitter-go>=0.23
+tree-sitter-cpp>=0.23
 # The launcher window (apps/desktop.py). Wraps the OS's own webview (WebView2
 # on Windows, WebKit on mac/Linux) rather than bundling a browser engine, so
 # this stays a small pure-Python dependency, not another Chromium download.

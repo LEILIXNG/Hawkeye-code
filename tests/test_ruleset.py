@@ -16,6 +16,7 @@ currently only surface as a broken (or silently degraded) scan:
     failure anyone notices.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,6 +39,17 @@ CUSTOM_RULES_DIR = ROOT / "rules" / "custom"
 REQUIRED_RULE_FIELDS = ("id", "languages", "severity", "message")
 
 
+def decoded(stream):
+    return stream.decode("utf-8", errors="replace") if isinstance(stream, bytes) else (stream or "")
+
+
+def semgrep_env(settings_dir: Path):
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["SEMGREP_SETTINGS_FILE"] = str(settings_dir / "semgrep-settings.yml")
+    return env
+
+
 def custom_rule_files():
     return sorted(p for p in CUSTOM_RULES_DIR.rglob("*") if p.suffix in (".yml", ".yaml"))
 
@@ -46,7 +58,7 @@ def custom_rule_files():
 # follows the rule's target language rather than being assumed: the MyBatis
 # rule matches mapper XML, so hard-coding .java would have silently reported
 # it as having no fixture.
-FIXTURE_SUFFIXES = (".java", ".xml")
+FIXTURE_SUFFIXES = (".java", ".xml", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".h")
 
 
 def fixture_for(rule_path):
@@ -179,15 +191,16 @@ class TestCustomRules:
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
-def test_semgrep_accepts_the_whole_ruleset():
+def test_semgrep_accepts_the_whole_ruleset(tmp_path):
     """Catches malformed custom rules, and vendored rules that the pinned
     semgrep version can no longer parse after a submodule bump."""
     cmd = ["semgrep", "scan", "--validate", "--metrics=off"]
     for config in load_default_configs():
         cmd += ["--config", config]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    assert proc.returncode == 0, f"semgrep rejected the ruleset:\n{proc.stdout}\n{proc.stderr}"
+    proc = subprocess.run(cmd, capture_output=True, env=semgrep_env(tmp_path))
+    stdout, stderr = decoded(proc.stdout), decoded(proc.stderr)
+    assert proc.returncode == 0, f"semgrep rejected the ruleset:\n{stdout}\n{stderr}"
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
@@ -222,12 +235,12 @@ def test_semgrep_exclude_covers_the_bare_name_globs(tmp_path):
         cmd += ["--exclude", glob]
     cmd.append(str(tmp_path))
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    assert proc.returncode in (0, 1), f"semgrep failed:\n{proc.stderr}"
+    proc = subprocess.run(cmd, capture_output=True, env=semgrep_env(tmp_path))
+    assert proc.returncode in (0, 1), f"semgrep failed:\n{decoded(proc.stderr)}"
 
     scanned = {
         str(Path(p).resolve().relative_to(tmp_path.resolve())).replace("\\", "/")
-        for p in json.loads(proc.stdout).get("paths", {}).get("scanned", [])
+        for p in json.loads(decoded(proc.stdout)).get("paths", {}).get("scanned", [])
     }
     assert "src/main/java/Kept.java" in scanned, (
         "the exclusions swallowed ordinary source code: " + repr(sorted(scanned))
@@ -310,19 +323,57 @@ def test_every_custom_rule_is_exercised_by_its_fixture():
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
-def test_custom_rules_match_their_fixtures():
-    """The regression net for rules/custom/. Widening a pattern until it
-    swallows a hardened shape, or narrowing one until it drops the shape the
-    rule exists for, both look like a clean scan otherwise."""
-    for path in custom_rule_files():
-        proc = subprocess.run(
-            ["semgrep", "--test", "--metrics=off",
-             "--config", str(path), str(fixture_for(path))],
-            capture_output=True, text=True,
-        )
-        assert proc.returncode == 0 and "did not pass" not in proc.stdout, (
-            f"{path.name} does not match its fixture:\n{proc.stdout}\n{proc.stderr}"
-        )
+def test_custom_rules_match_their_fixtures(tmp_path):
+    """Run one real scan and check Semgrep's ruleid/ok annotations.
+
+    Semgrep 1.173.0's `--test` starts a Windows process pool per config. A
+    single JSON scan exercises the same parser and matcher without leaving
+    dozens of workers behind. Fixtures are copied to a temporary target so
+    filename-scoped rules see production-shaped names (notably *Mapper.xml).
+    """
+    staging = tmp_path / "fixtures"
+    staged_to_source = {}
+    for rule_path in custom_rule_files():
+        source = fixture_for(rule_path)
+        assert source is not None
+        suffix = "Mapper.xml" if source.suffix == ".xml" else source.suffix
+        staged = staging / rule_path.parent.relative_to(CUSTOM_RULES_DIR) / f"{source.stem}{suffix}"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, staged)
+        staged_to_source[staged.resolve()] = source.resolve()
+
+    proc = subprocess.run(
+        ["semgrep", "--json", "--metrics=off", "--no-git-ignore",
+         "--config", str(CUSTOM_RULES_DIR), str(staging)],
+        capture_output=True,
+        env=semgrep_env(tmp_path),
+    )
+    stdout, stderr = decoded(proc.stdout), decoded(proc.stderr)
+    assert proc.returncode in (0, 1), f"semgrep fixture scan failed:\n{stdout}\n{stderr}"
+
+    from scanner.core import normalize
+
+    matches = {
+        (staged_to_source[(staging / candidate["sink_file"]).resolve()], candidate["sink_line"],
+         candidate["rule_id"].split(".")[-1])
+        for candidate in normalize(json.loads(stdout), staging)
+    }
+
+    annotation = re.compile(
+        r"^\s*(?://|#|<!--|/\*)\s*(ruleid|ok|todook):\s*([A-Za-z0-9_.-]+)"
+    )
+    for rule_path in custom_rule_files():
+        fixture = fixture_for(rule_path)
+        assert fixture is not None
+        for line_no, line in enumerate(fixture.read_text(encoding="utf-8").splitlines(), 1):
+            found = annotation.search(line)
+            if not found or found.group(1) == "todook":
+                continue
+            key = (fixture.resolve(), line_no + 1, found.group(2))
+            if found.group(1) == "ruleid":
+                assert key in matches, f"{fixture.name}:{line_no + 1} should match {found.group(2)}"
+            else:
+                assert key not in matches, f"{fixture.name}:{line_no + 1} unexpectedly matched {found.group(2)}"
 
 
 def pinned_semgrep_version():
@@ -343,14 +394,15 @@ def test_semgrep_is_pinned_to_an_exact_version():
 
 
 @pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep is not installed")
-def test_installed_semgrep_matches_the_pin():
+def test_installed_semgrep_matches_the_pin(tmp_path):
     """Pinning requirements.txt does nothing for a machine that already had a
     different semgrep on PATH, which is the case that silently shifts results:
     every number in eval/labels.json was measured against the pinned engine."""
-    proc = subprocess.run(["semgrep", "--version"], capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stderr
+    proc = subprocess.run(["semgrep", "--version"], capture_output=True,
+                          env=semgrep_env(tmp_path))
+    assert proc.returncode == 0, decoded(proc.stderr)
     # The CLI prints an upgrade notice on its own line before the version.
-    reported = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()][-1]
+    reported = [ln.strip() for ln in decoded(proc.stdout).splitlines() if ln.strip()][-1]
     expected = pinned_semgrep_version()
     assert reported == expected, (
         f"semgrep on PATH is {reported}, requirements.txt pins {expected}. "

@@ -1,0 +1,17 @@
+rules:
+  - id: CPP001
+    languages: [cpp]
+    severity: ERROR
+    message: Dangerous C string function can write past the destination buffer.
+    metadata:
+      name: Dangerous C string function
+      description: Detects calls to strcpy, strcat, sprintf, and gets.
+      confidence: HIGH
+      hawkeye_language: cpp
+      hawkeye_validator: standard-function-call
+      cwe: ["CWE-120: Buffer Copy without Checking Size of Input"]
+    patterns:
+      - pattern: $FUNC(...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: '^(?:(?:::)?(?:std::)?)?(?:strcpy|strcat|sprintf|gets)$'
