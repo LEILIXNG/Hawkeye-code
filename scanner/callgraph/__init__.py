@@ -118,6 +118,29 @@ name rather than the same-file search every earlier language's own version
 of that pass uses. The one hint with no parameter-type equivalent: a
 function body reading `$_GET`/`$_POST`/`$_REQUEST` directly, since PHP has
 no request-object parameter to check in the first place.
+
+Ruby support (2026-09-17), ruby_syntax.py / ruby_entrypoints.py /
+ruby_index.py, same model reuse a seventh time. Rails routing is entirely
+external to the controller -- there is no annotation/attribute/decorator
+tier at all here, unlike every earlier language -- so entry points come
+from two places: routes.rb's own per-verb calls (`get '/x', to:
+'users#show'`) and its `resources :users` RESTful macro, both resolved
+globally across the whole index the same way PHP's Laravel facade
+resolution is, since routes.rb and the controller it wires up are almost
+always different files; and a public method on an ApplicationController/
+ActionController::Base subclass, treated as proof the same way C#'s own
+convention-routing tier is, though Rails (unlike ASP.NET MVC) does not
+actually expose every public controller method without a routes.rb entry
+-- a deliberate over-approximation, not a claim the two frameworks work
+alike. `private`/`protected`/`public` are ordinary method calls that flip
+a class body's default visibility for every `def` after them, not
+modifiers on the declaration itself, so ruby_index.py's own class-body
+walk tracks that state sequentially rather than delegating to the
+generic per-child dispatch every earlier language's `_walk()` uses
+unconditionally. The one call shape invisible to this module: a bare,
+zero-argument, no-parens call (`helper`) is syntactically indistinguishable
+from a local-variable read in this grammar, so it produces no Call edge --
+a known gap, not attempted here.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -138,6 +161,9 @@ from scanner.callgraph.php_entrypoints import ROUTE_FACADE_METHODS as PHP_ROUTE_
 from scanner.callgraph.php_index import index_php_workspace
 from scanner.callgraph.python_entrypoints import DJANGO_VIEW_SUPERTYPES, ROUTE_DECORATOR_NAMES
 from scanner.callgraph.python_index import index_python_workspace
+from scanner.callgraph.ruby_entrypoints import CONTROLLER_SUPERTYPES as RUBY_CONTROLLER_SUPERTYPES
+from scanner.callgraph.ruby_entrypoints import HTTP_VERBS as RUBY_HTTP_VERBS
+from scanner.callgraph.ruby_index import index_ruby_workspace
 from scanner.callgraph.rust_entrypoints import HANDLER_PARAM_TYPES as RUST_HANDLER_PARAM_TYPES
 from scanner.callgraph.rust_entrypoints import HTTP_ROUTE_VERBS as RUST_HTTP_ROUTE_VERBS
 from scanner.callgraph.rust_index import index_rust_workspace
@@ -150,10 +176,11 @@ __all__ = [
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
     "PHP_ROUTE_FACADE_METHODS",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
-    "ROUTE_DECORATOR_NAMES", "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS",
+    "ROUTE_DECORATOR_NAMES", "RUBY_CONTROLLER_SUPERTYPES", "RUBY_HTTP_VERBS",
+    "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS",
     "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
     "index_cpp_workspace", "index_csharp_workspace", "index_go_workspace", "index_js_workspace",
-    "index_mybatis_mappers", "index_php_workspace", "index_python_workspace", "index_rust_workspace",
-    "index_workspace", "trace_to_entry_points",
+    "index_mybatis_mappers", "index_php_workspace", "index_python_workspace", "index_ruby_workspace",
+    "index_rust_workspace", "index_workspace", "trace_to_entry_points",
 ]
