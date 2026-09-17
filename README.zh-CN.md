@@ -6,7 +6,7 @@
 
 <p align="center">中文 · <a href="README.md">English</a></p>
 
-一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）、Go（net/http、gorilla/mux、chi、gin、echo）、C++，以及 Rust（actix-web、Rocket、axum）都有完整的跨文件调用图可达性追踪。
+一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）、Go（net/http、gorilla/mux、chi、gin、echo）、C++，以及 Rust（actix-web、Rocket、axum）都有完整的跨文件调用图可达性追踪。C# 目前只接入了规则库（SQL/命令/LDAP/XPath 注入、SSRF、XXE、路径穿越、十种不安全反序列化写法等），还没有调用图，所以 C# 的发现只能靠函数体本身判断。
 
 只报有完整 source→sink 路径的漏洞。全程跑在你自己的机器上。
 
@@ -113,7 +113,7 @@ python -m pytest tests/ -v
 - **Semgrep 出候选，LLM 判断数据流。** 请求驱动候选继续使用 `reachable` / `sanitized` / `confidence` / `reasoning` 契约；确定性的 C++ 内存、空指针、敏感信息和文件操作问题由规则验证器判断，标记为”静态确认”，不再交给 LLM 错判 HTTP 请求可达性。
 - **混合范围。** 通用静态属性规则仍按 CWE 排除；带确定性验证器的自定义规则可以显式进入静态判定通道。
 - **危险级别按 CVSS 定，不看引擎自己的 severity。** Semgrep 只会给 ERROR/WARNING，区分不了未授权 SQL 注入和弱哈希。`scanner/cvss.py` 把每个 CWE 映射到一条 v3.1 基准向量并按公式算分，再由可达性给这个档位定级——被判定不可达的发现无论基准分多高都落到最低档。
-- **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，覆盖服务端 Java/Spring、Python、JavaScript/TypeScript、Go 和 Rust。`rules/custom` 现在共有 19 条规则，其中 8 条是 `CPP001`–`CPP008`，另有两条 Rust 自研规则（命令注入、SQL 注入）——内置的 `rust/lang/security` 规则包里没有对应的注入类规则。C++ 规则使用 Semgrep C++ AST；`.h` 只有检测到 C++ 专属内容后才接受其规则结果。
+- **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，覆盖服务端 Java/Spring、Python、JavaScript/TypeScript、Go、Rust 和 C#。C# 内置规则的覆盖深度接近 Java（`csharp/lang/security` 下嵌套的各子目录，加上 `csharp/dotnet/security`、`csharp/razor/security`），这一批没有像 Rust 那样需要补自研规则。`rules/custom` 现在共有 19 条规则，其中 8 条是 `CPP001`–`CPP008`，另有两条 Rust 自研规则（命令注入、SQL 注入）——内置的 `rust/lang/security` 规则包里没有对应的注入类规则。C++ 规则使用 Semgrep C++ AST；`.h` 只有检测到 C++ 专属内容后才接受其规则结果。
 
 完整架构见 `docs/framework.md`，开发规范见 `CLAUDE.md`。
 

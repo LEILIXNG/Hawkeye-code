@@ -6,7 +6,7 @@
 
 <p align="center"><a href="README.zh-CN.md">中文</a> · English</p>
 
-A local-first SAST tool for server-side web apps. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix. Java/Spring, Python (Flask, Django, FastAPI), JavaScript/TypeScript (Express, Koa, NestJS), Go (net/http, gorilla/mux, chi, gin, echo), C++, and Rust (actix-web, Rocket, axum) all have full call-graph reachability tracing.
+A local-first SAST tool for server-side web apps. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix. Java/Spring, Python (Flask, Django, FastAPI), JavaScript/TypeScript (Express, Koa, NestJS), Go (net/http, gorilla/mux, chi, gin, echo), C++, and Rust (actix-web, Rocket, axum) all have full call-graph reachability tracing. C# is scanned by the rule library too (SQL/command/LDAP/XPath injection, SSRF, XXE, path traversal, ten insecure-deserialization shapes, and more), but has no call-graph indexer yet, so a C# finding is judged from its own function body alone.
 
 Only findings with a complete source→sink path are reported. Everything runs on your own machine.
 
@@ -119,7 +119,7 @@ python -m pytest tests/ -v
 - **Semgrep for candidates, LLM for dataflow verdicts.** Request-driven candidates keep the `reachable` / `sanitized` / `confidence` / `reasoning` contract. Deterministic C++ memory, null, secret and file-operation findings use rule validators and are labelled **Statically confirmed** without an irrelevant request-reachability LLM call.
 - **Hybrid scope.** Generic static-property findings remain excluded by CWE, while custom rules carrying a deterministic validator can explicitly opt into the static-verdict path.
 - **Risk from CVSS, not from the engine's own severity.** Semgrep grades everything ERROR or WARNING, which cannot separate an unauthenticated SQL injection from a weak hash. `scanner/cvss.py` maps each CWE to a v3.1 base vector and computes the score from it; reachability then grades that band, so a finding proved unreachable ends up lowest whatever it scored.
-- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated for server-side Java/Spring, Python, JavaScript/TypeScript, Go and Rust. Nineteen custom rules under `rules/custom` add project-specific Java/XML coverage, eight C++ checks (`CPP001`–`CPP008`), and Rust command-injection/SQL-injection rules the vendored `rust/lang/security` bucket has no equivalent of. C++ rules use Semgrep's C++ AST; `.h` files require C++-specific content before their findings are accepted.
+- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated for server-side Java/Spring, Python, JavaScript/TypeScript, Go, Rust and C#. C#'s vendored coverage is close to Java's own depth (`csharp/lang/security`'s nested subdirectories plus `csharp/dotnet/security` and `csharp/razor/security`) and needed no custom-rule gap filled for this pass, unlike Rust's near-empty bucket. Nineteen custom rules under `rules/custom` add project-specific Java/XML coverage, eight C++ checks (`CPP001`–`CPP008`), and Rust command-injection/SQL-injection rules the vendored `rust/lang/security` bucket has no equivalent of. C++ rules use Semgrep's C++ AST; `.h` files require C++-specific content before their findings are accepted.
 
 Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 

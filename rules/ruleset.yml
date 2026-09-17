@@ -114,6 +114,35 @@
 # web::get().to(handler))). See scanner/callgraph/__init__.py's own Rust
 # paragraph for what is structurally different about how Rust's ownership
 # and trait-supertype relationships get read.
+#
+# C# (2026-09-17): rule library only, no scanner/callgraph/ indexer -- same
+# scope Rust started with, and for the same reason (no tree-sitter-csharp
+# dependency here yet, so a C# candidate's reachability is judged from its
+# own function body, with no request-entry-point evidence either way).
+#
+# Unlike Rust, the vendored csharp rules are close to Java's own depth:
+# csharp/lang/security (with its nested ad, cryptography, filesystem, http,
+# injections, insecure-deserialization, memory, regular-expression-dos,
+# sqli, ssrf and xxe subdirectories -- one directory config here sweeps up
+# every rule file semgrep finds underneath it, the same way the single
+# java/lang/security entry above already pulls in that language's own
+# nested audit/ subdirectory) carries genuine source -> sink coverage this
+# project has no custom-rule gap for yet: os-command-injection, csharp-sqli,
+# ssrf, three xxe rules, unsafe-path-combine (path traversal), ten separate
+# insecure-deserialization rules (BinaryFormatter, NetDataContract,
+# LosFormatter, SoapFormatter, JavaScriptSerializer, Json.NET TypeNameHandling
+# and others), ldap-injection and xpath-injection, mass-assignment and
+# missing-or-broken-authorization. csharp/dotnet/security (ASP.NET-specific:
+# missing anti-forgery tokens, debug/trace left enabled, Razor template
+# injection, weak crypto/RNG choices) and csharp/razor/security (html-raw-json,
+# a Razor-specific XSS shape) round it out. No rules/custom/csharp/ addition
+# was needed for this pass -- revisit if a real corpus turns up a gap the
+# way MediChain did for Python's sql-string-formatting.yml.
+#
+# csharp/lang/best-practice and csharp/lang/correctness are left out,
+# mirroring every other language's selection logic: only `security/`
+# directories are in scope, non-security correctness/best-practice rules
+# are not (see the Java selection note at the top of this file).
 
 # Rules that fire often enough to be a real drag on a scan but have never
 # produced a true finding on this project's targets. Each id is passed to
@@ -256,6 +285,14 @@ exclude_paths:
                                # source it tests, not under a separate test/ dir,
                                # so the bare `test`/`tests` names above cannot
                                # catch it the way they catch every other language
+  - bin                       # .NET build output (also common enough elsewhere
+                               # to be worth the bare name)
+  - obj                       # .NET's own intermediate-build directory, always
+                               # paired with bin
+  - packages                  # pre-PackageReference .NET Framework's vendored
+                               # NuGet restore directory (semgrep's own default
+                               # already covers node_modules; this is C#'s
+                               # equivalent gap)
 
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
@@ -311,4 +348,7 @@ configs:
   - rules/vendor/semgrep-rules/go/otto/security
   - rules/vendor/semgrep-rules/go/template/security
   - rules/vendor/semgrep-rules/rust/lang/security
+  - rules/vendor/semgrep-rules/csharp/lang/security
+  - rules/vendor/semgrep-rules/csharp/dotnet/security
+  - rules/vendor/semgrep-rules/csharp/razor/security
   - rules/custom
