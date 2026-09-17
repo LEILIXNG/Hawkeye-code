@@ -256,5 +256,17 @@
     "line": 41,
     "expected_reachable": "yes",
     "note": "cpp_demo CPP008: the insecure permission is retained as a confirmed static finding rather than downgraded for lacking request dataflow"
+  },
+  {
+    "file": "vulnerabilities.rs",
+    "line": 4,
+    "expected_reachable": "no",
+    "note": "rust_demo: ping() shells out via Command::new(\"sh\").arg(\"-c\").arg(host) with a tainted-looking argument, but Rust has no call-graph indexer yet (see rules/ruleset.yml's Rust section) -- there is no entry point evidence either way, same as cpp_demo's dynamic rules before C++ had its own indexer"
+  },
+  {
+    "file": "vulnerabilities.rs",
+    "line": 15,
+    "expected_reachable": "no",
+    "note": "rust_demo: find_user() builds a SQL string with format!() from a username parameter; unreachable for the same reason as line 4 -- no Rust call graph to show whether username ever comes from a request"
   }
 ]

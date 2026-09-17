@@ -1,0 +1,67 @@
+# Catches a shell being invoked (sh/bash -c, cmd /c) through
+# std::process::Command with a command line that is not a compile-time
+# constant -- the Rust counterpart of rules/custom/java/command-injection.yml.
+# The vendored rust/lang/security bucket (see rules/ruleset.yml) has no
+# injection-shaped rule at all, so this is new coverage rather than a
+# narrowing of an existing one.
+#
+# Scope is deliberately narrow, mirroring the Java rule's own choice: only
+# the shell-invocation shape is covered. `Command::new("curl").arg(url)`
+# with no shell is not matched -- without a shell interpreting it, `url`
+# is one argv entry, not a command line, and shell metacharacters in it do
+# nothing. That is a different, and much noisier, question this rule does
+# not try to answer.
+#
+# Two call shapes are covered, both confirmed against a local sample with
+# `semgrep --config` before being written into the fixture below:
+#   - chained .arg() calls: Command::new($SH).arg($FLAG).arg($ARG)
+#   - the array form: Command::new($SH).args([$FLAG, $ARG])
+# Builder-pattern indirection through an intermediate `let argv = ...;`
+# local (the way Java's rule chases a `String[] argv` built one statement
+# earlier) is not chased here -- that is a known gap, not an oversight, and
+# can be added the same way if a corpus turns up the shape.
+#
+# This is a plain pattern rule, not `mode: taint`, and deliberately
+# over-inclusive: this project's job for Semgrep is to surface candidates,
+# not prove reachability -- that's what the context extraction + LLM verify
+# stages are for (docs/framework.md sections 3-4). For Rust specifically,
+# there is no call-graph indexer yet (see rules/ruleset.yml's Rust section),
+# so the verify stage judges every candidate from its own function body
+# alone, with no request-entry-point evidence either way.
+#
+# Every shape above, and the literal-only shapes the rule must stay off, are
+# pinned in command-injection.rs and checked by `semgrep --test` from
+# tests/test_ruleset.py.
+rules:
+  - id: rust-shell-invocation-with-nonconstant-command
+    languages: [rust]
+    severity: ERROR
+    message: >
+      A shell is invoked (sh -c / bash -c / cmd /c) through
+      std::process::Command with a command line that is not a compile-time
+      constant. If any part of that value can be influenced by external
+      input, this allows arbitrary command execution. Pass the real program
+      and its arguments to Command directly instead of building a shell
+      command line by hand.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-either:
+          - pattern: Command::new($SH).arg($FLAG).arg($ARG)
+          - pattern: Command::new($SH).args([$FLAG, $ARG])
+      - metavariable-regex:
+          metavariable: $SH
+          regex: ^"(/bin/(sh|bash)|sh|bash|cmd)"$
+      - metavariable-regex:
+          metavariable: $FLAG
+          regex: ^"(-c|/c|/C)"$
+      # A shell line built entirely out of literals carries no external
+      # input. `"..."` is semgrep's any-string-literal pattern.
+      - metavariable-pattern:
+          metavariable: $ARG
+          patterns:
+            - pattern-not: "\"...\""

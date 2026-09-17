@@ -6,7 +6,7 @@
 
 <p align="center">中文 · <a href="README.md">English</a></p>
 
-一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。目前支持 Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）、Go（net/http、gorilla/mux、chi、gin、echo）和 C++。
+一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）、Go（net/http、gorilla/mux、chi、gin、echo）和 C++ 都有完整的跨文件调用图可达性追踪。Rust 目前只接入了规则库（内置规则加自研的命令注入/SQL 注入规则），还没有调用图，所以 Rust 的发现只能靠函数体本身判断。
 
 只报有完整 source→sink 路径的漏洞。全程跑在你自己的机器上。
 
@@ -113,7 +113,7 @@ python -m pytest tests/ -v
 - **Semgrep 出候选，LLM 判断数据流。** 请求驱动候选继续使用 `reachable` / `sanitized` / `confidence` / `reasoning` 契约；确定性的 C++ 内存、空指针、敏感信息和文件操作问题由规则验证器判断，标记为“静态确认”，不再交给 LLM 错判 HTTP 请求可达性。
 - **混合范围。** 通用静态属性规则仍按 CWE 排除；带确定性验证器的自定义规则可以显式进入静态判定通道。
 - **危险级别按 CVSS 定，不看引擎自己的 severity。** Semgrep 只会给 ERROR/WARNING，区分不了未授权 SQL 注入和弱哈希。`scanner/cvss.py` 把每个 CWE 映射到一条 v3.1 基准向量并按公式算分，再由可达性给这个档位定级——被判定不可达的发现无论基准分多高都落到最低档。
-- **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，覆盖服务端 Java/Spring、Python、JavaScript/TypeScript 和 Go。`rules/custom` 现在共有 15 条规则，其中 8 条是 `CPP001`–`CPP008`。C++ 规则使用 Semgrep C++ AST；`.h` 只有检测到 C++ 专属内容后才接受其规则结果。
+- **规则可复现。** `rules/vendor/semgrep-rules` 是锁定的 submodule，覆盖服务端 Java/Spring、Python、JavaScript/TypeScript、Go，以及（只接入规则库，见上）Rust。`rules/custom` 现在共有 19 条规则，其中 8 条是 `CPP001`–`CPP008`，另有两条 Rust 自研规则（命令注入、SQL 注入）——内置的 `rust/lang/security` 规则包里没有对应的注入类规则。C++ 规则使用 Semgrep C++ AST；`.h` 只有检测到 C++ 专属内容后才接受其规则结果。
 
 完整架构见 `docs/framework.md`，开发规范见 `CLAUDE.md`。
 
@@ -121,7 +121,7 @@ python -m pytest tests/ -v
 
 Phase 1 已完成——上传 → 扫描 → 报告全链路跑通。
 
-- `eval/labels.json` 现有 43 条人工标注：19 条 Java、9 条 Python、7 条 JavaScript 和 8 条 C++（`eval/fixtures/cpp_demo`）。C++ 命令执行规则保留请求可达性判断；确定性的 CPP004–CPP008 使用静态判定通道。
+- `eval/labels.json` 现有 45 条人工标注：19 条 Java、9 条 Python、7 条 JavaScript、8 条 C++（`eval/fixtures/cpp_demo`）和 2 条 Rust（`eval/fixtures/rust_demo`）。C++ 命令执行规则保留请求可达性判断；确定性的 CPP004–CPP008 使用静态判定通道。Rust 两条都标了“不可达”，因为目前没有调用图能证明某个值是否来自请求。
 - C++ 解析只读取源码，不执行构建。必须依赖编译数据库才能确定的条件编译、生成代码、虚调用和复杂函数指针目标仍采取保守结果，不会伪装成完全精确。
 - 复核层在两次完全相同的重跑之间约有 16% 的判定会翻转，所以任何一组标注上 ±1 的变化都属于噪声。引擎改动一律用确定性指标论证。
 - Java 那部分已在一个真实的 13 模块 Maven 项目上实测过，不只跑教学靶场。

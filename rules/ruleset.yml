@@ -81,6 +81,39 @@
 # javascript/grpc), go/jwt-go/security (mirrors java-jwt/jjwt/python's jwt),
 # go/template/security (html/template SSTI -- Go's counterpart to Java's
 # SpEL and Python's jinja2 template-injection coverage).
+#
+# Rust (2026-09-17): rule-library recognition only -- unlike every language
+# above, this addition does not come with a scanner/callgraph/ indexer.
+# There is no tree-sitter-rust dependency and no rust_index.py/
+# rust_entrypoints.py, so index_workspace() never sees a .rs file: a Rust
+# candidate's build_caller_context (scanner/context.py) always reports "the
+# call graph could not place this line", the same way an isolated cpp_demo
+# fixture did before C++ had its own indexer. Judge a Rust finding's
+# reachability from its own function body only, same as the cpp_demo
+# dynamic-rule labels in eval/labels.json do.
+#
+# Vendored rust rules are also much thinner than Java/Python/JS/Go's: the
+# submodule carries exactly one directory, rust/lang/security, with no
+# framework-specific packs at all (no actix-web, rocket, sqlx or diesel
+# equivalent of spring/flask/gorm). Of its nine rules, four are already
+# handled by the existing out_of_scope_cwes denylist below with no
+# Rust-specific change needed: ssl-verify-none, rustls-dangerous and
+# reqwest-accept-invalid are all CWE-295 (disabled TLS verification), and
+# insecure-hashes is CWE-328 (weak hash) -- both already listed. The
+# remaining five (args, args-os, current-exe, temp-dir: CWE-807; unsafe-
+# usage: CWE-242; reqwest-set-sensitive: CWE-921) are kept, mirroring how
+# every other language's similarly hardening-shaped bucket is kept once the
+# CWE filter exists rather than trimmed by hand (see python/cryptography
+# above).
+#
+# None of the nine vendored rules is an injection-shaped source -> sink
+# rule -- the gap this project's own rules/custom/java and rules/custom/
+# python fill for their languages with command-injection.yml and
+# sql-string-formatting.yml. rules/custom/rust/ adds the Rust equivalents:
+# command injection via std::process::Command invoking a shell (sh/bash/cmd)
+# with a non-constant argument, and SQL built by string formatting
+# (format!, or a "...".to_string() / String::from("...") concatenation)
+# containing a SQL keyword.
 
 # Rules that fire often enough to be a real drag on a scan but have never
 # produced a true finding on this project's targets. Each id is passed to
@@ -277,4 +310,5 @@ configs:
   - rules/vendor/semgrep-rules/go/jwt-go/security
   - rules/vendor/semgrep-rules/go/otto/security
   - rules/vendor/semgrep-rules/go/template/security
+  - rules/vendor/semgrep-rules/rust/lang/security
   - rules/custom

@@ -1,0 +1,68 @@
+# SQL built by string formatting -- the Rust counterpart of
+# rules/custom/python/sql-string-formatting.yml. The vendored
+# rust/lang/security bucket (see rules/ruleset.yml) has no injection-shaped
+# rule at all, so this is new coverage rather than a narrowing of an
+# existing one.
+#
+# Rust has no f-string or %-formatting; the idiomatic ways to build a string
+# from parts are `format!(...)` and `+` concatenation (which, unlike Python,
+# requires the left operand to own a String -- so the concatenation shape
+# is always `"...".to_string() + $X` or `String::from("...") + $X`, never a
+# bare `"..." + $X`, which does not compile). All three are covered.
+#
+# Deliberately not narrowed to a specific query-execution sink the way the
+# vendored psycopg-sqli/tainted-sql-string rules are for Python: matching on
+# the string construction itself, same as the Python rule, sidesteps needing
+# to know the name of whatever sqlx/rusqlite/diesel raw-query call the
+# result is eventually handed to, or how many helper functions sit between
+# the two.
+#
+# This is a plain pattern rule, not `mode: taint`, and deliberately
+# over-inclusive for the same reason command-injection.yml is: this
+# project's job for Semgrep is to surface candidates, not prove
+# reachability. For Rust specifically there is no call-graph indexer yet
+# (see rules/ruleset.yml's Rust section), so the verify stage judges every
+# candidate from its own function body alone.
+#
+# Every shape above, and the shapes the rule must stay off (a fully literal
+# statement, an unrelated format! call), are pinned in
+# sql-string-formatting.rs and checked by `semgrep --test` from
+# tests/test_ruleset.py.
+rules:
+  - id: rust-sql-string-built-from-nonconstant-segment
+    languages: [rust]
+    severity: WARNING
+    message: >
+      A SQL statement is built by string formatting (format!, or a
+      .to_string()/String::from() concatenation) rather than a parameterized
+      query. If any interpolated segment derives from external input, this
+      is SQL injection. Use a parameterized query (sqlx::query, rusqlite's
+      `?` placeholders, or an ORM) instead of building the statement text by
+      hand.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      source: sast-local/rules/custom
+    pattern-either:
+      # Each alternative pairs its own metavariable-regex rather than
+      # sharing one set of constraints across all three: $FMT is bound only
+      # by the format! branch and $SQLSTR only by the concatenation
+      # branches, and a metavariable-regex on a name a branch never binds
+      # makes that whole rule match nothing at all.
+      - patterns:
+          - pattern: format!($FMT, ...)
+          - metavariable-regex:
+              metavariable: $FMT
+              regex: '"\s*(?i:select|delete|insert|create|update|alter|drop)\b.*'
+      - patterns:
+          - pattern: '"$SQLSTR".to_string() + ...'
+          - metavariable-regex:
+              metavariable: $SQLSTR
+              regex: '(?i)^\s*(select|delete|insert|create|update|alter|drop)\b.*'
+      - patterns:
+          - pattern: 'String::from("$SQLSTR") + ...'
+          - metavariable-regex:
+              metavariable: $SQLSTR
+              regex: '(?i)^\s*(select|delete|insert|create|update|alter|drop)\b.*'
