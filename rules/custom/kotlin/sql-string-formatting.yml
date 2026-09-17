@@ -1,0 +1,62 @@
+# SQL built by string concatenation or template interpolation -- the
+# Kotlin counterpart of rules/custom/python/sql-string-formatting.yml and
+# rules/custom/rust/sql-string-formatting.yml. The vendored kotlin/lang/
+# security bucket (see rules/ruleset.yml) has exactly one real
+# source -> sink rule at all (command-injection-formatted-runtime-call.yml)
+# and nothing for SQL, so this is new coverage rather than a narrowing of
+# an existing one.
+#
+# Two shapes, needing two different match strategies:
+#
+#   - string concatenation (`"..." + username`) is matched structurally,
+#     the same way the Rust/Python rules already do.
+#   - template interpolation (`"...${username}..."` or the bare-name
+#     shorthand `"...$username..."`) is Kotlin's idiomatic, far more
+#     common way to build a string, and is matched by `pattern-regex`
+#     instead of a structural `pattern`, after verifying directly with
+#     `semgrep --config` that neither `"$SQLSTR$X..."` nor
+#     `"$SQLSTR${...}..."` -- the metavariable-in-string syntax that
+#     works for Python f-strings -- matches anything at all against a
+#     real Kotlin string template. `pattern-regex` scopes itself
+#     correctly here without an explicit anchor: it cannot cross the `"`
+#     that closes one string literal and opens the next, so it stays
+#     within a single string despite operating on raw text rather than
+#     the parsed AST (confirmed against a two-function fixture with an
+#     unrelated `$name` interpolation in the very next function -- zero
+#     matches).
+#
+# This is a plain pattern rule, not `mode: taint`, and deliberately
+# over-inclusive for the same reason every other language's own
+# sql-string-formatting/command-injection rule is: this project's job for
+# Semgrep is to surface candidates, not prove reachability --
+# scanner/callgraph/kotlin_index.py reconstructs the request path back to
+# a Spring @GetMapping/Ktor route the same way it does for every other
+# language here (see rules/ruleset.yml's Kotlin section).
+#
+# Every shape above, and the shapes the rule must stay off (a fully
+# literal statement, an interpolated string with no SQL keyword), are
+# pinned in sql-string-formatting.kt and checked by `semgrep --test` from
+# tests/test_ruleset.py.
+rules:
+  - id: kotlin-sql-string-built-from-nonconstant-segment
+    languages: [kotlin]
+    severity: WARNING
+    message: >
+      A SQL statement is built by string concatenation or template
+      interpolation rather than a parameterized query. If the interpolated
+      or concatenated segment derives from external input, this is SQL
+      injection. Use a parameterized query (PreparedStatement, an ORM like
+      Exposed/Room) instead of building the statement text by hand.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      source: sast-local/rules/custom
+    pattern-either:
+      - patterns:
+          - pattern: '"$SQLSTR" + ...'
+          - metavariable-regex:
+              metavariable: $SQLSTR
+              regex: '(?i)^\s*(select|delete|insert|create|update|alter|drop)\b.*'
+      - pattern-regex: '"\s*(?i:select|delete|insert|create|update|alter|drop)\b[^"]*\$\{?[A-Za-z_]'

@@ -398,6 +398,48 @@ exclude_paths:
 # that shaped this module (visibility-flipping calls, invisible bareword
 # calls, `def self.foo`'s distinct node type).
 
+# Kotlin (2026-09-17, rule library; call graph added the same day).
+# Vendored kotlin rules are thin, close to Rust's own near-empty bucket:
+# kotlin/lang/security carries exactly one real source -> sink rule,
+# command-injection-formatted-runtime-call (CWE-78, a plain pattern rule
+# matching $RUNTIME.exec($X + $Y) / $RUNTIME.exec(String.format(...))) --
+# narrow (no ProcessBuilder shape) but real coverage, not narrowed
+# further here. Everything else in the bucket (cookie-missing-httponly,
+# cookie-missing-secure-flag, defaulthttpclient-is-deprecated, ecb-cipher,
+# no-null-cipher, unencrypted-socket, use-of-md5, use-of-sha1,
+# use-of-weak-rsa-key) is already handled by the out_of_scope_cwes
+# denylist below with no Kotlin-specific change needed. The remaining two
+# (anonymous-ldap-bind: CWE-287, bad-hexa-conversion: CWE-704,
+# gcm-detection: CWE-323) are kept, mirroring how every other language's
+# similarly hardening-shaped bucket is kept once the CWE filter exists
+# rather than trimmed by hand.
+#
+# No SQL-injection rule exists at all -- unlike command injection, this is
+# a genuine gap, filled by rules/custom/kotlin/sql-string-formatting.yml
+# (string concatenation and template interpolation, `"...${var}..."` or
+# the bare `"...$var..."` shorthand). The interpolation half is matched by
+# `pattern-regex` rather than a structural pattern, after checking
+# directly against semgrep that Python f-string-style metavariable-in-
+# string patterns do not match a real Kotlin string template at all --
+# see the rule file's own header for the fixture that confirmed that gap
+# and the scoping check that ruled out the obvious false-positive risk of
+# a raw-text regex crossing string-literal boundaries.
+#
+# gradle/security (build-gradle-password-hardcoded) is left out: it
+# matches Gradle build-script files, not Kotlin source, the same kind of
+# non-source-code trim python/docker/security already got.
+#
+# scanner/callgraph/kotlin_syntax.py / kotlin_entrypoints.py /
+# kotlin_index.py give these candidates the same cross-function
+# reachability tracing every other language here gets: Spring Boot on
+# Kotlin is recognised identically to Spring Boot on Java (`@GetMapping`
+# and friends, proof); Ktor is recognised by its route-building DSL --
+# `get("/x") { ... }`, a call ending in a trailing lambda block that is
+# itself the handler -- with a `route("/prefix") { ... }` block's own
+# path threaded through however many of them nest around the leaf verb
+# call. See scanner/callgraph/__init__.py's own Kotlin paragraph for the
+# grammar quirks that shaped that threading.
+
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
   - rules/vendor/semgrep-rules/java/servlets/security
@@ -462,4 +504,5 @@ configs:
   - rules/vendor/semgrep-rules/ruby/lang/security
   - rules/vendor/semgrep-rules/ruby/rails/security
   - rules/vendor/semgrep-rules/ruby/jwt/security
+  - rules/vendor/semgrep-rules/kotlin/lang/security
   - rules/custom
