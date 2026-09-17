@@ -302,6 +302,53 @@ exclude_paths:
                                # already covers node_modules; this is C#'s
                                # equivalent gap)
 
+# PHP (2026-09-17, rule library; call graph added the same day). Unlike
+# Rust's near-empty bucket, PHP's vendored coverage is close to C#'s own
+# depth: php/lang/security carries genuine source -> sink rules this
+# project has no custom-rule gap for -- tainted-exec (CWE-78/94, mode:
+# taint, $_GET/$_POST/$_COOKIE/$_REQUEST into exec/system/passthru/
+# shell_exec/backticks), tainted-sql-string (CWE-89, the same four
+# superglobals into a manually-built SQL string), file-inclusion (CWE-98,
+# LFI/RFI), deserialization/unserialize-use (CWE-502), tainted-callable/
+# tainted-object-instantiation (CWE-94/470), tainted-filename (CWE-22) and
+# php-ssrf (CWE-918). php/laravel/security adds laravel-sql-injection and
+# laravel-api-route-sql-injection (CWE-89, Eloquent/query-builder raw
+# clauses) and doctrine's own two dangerous-query rules
+# (php/doctrine/security) cover Symfony's ORM the same way. php/symfony/
+# security's own audit/ rules round it out (CSRF, permissive CORS, open
+# redirect). Verified against a hand-written sample with `semgrep
+# --config` before being added here: tainted-sql-string and tainted-exec
+# both fire on a $_GET-sourced Laravel controller action.
+#
+# CWE crossover with the denylist below, the same trim every other
+# language already gets rather than hand-picked: curl-ssl-verifypeer-off
+# and ftp-use (CWE-319), md5-used-as-password (CWE-327), weak-crypto and
+# sha224-hash (CWE-328), openssl-cbc-static-iv (CWE-329),
+# symfony-csrf-protection-disabled (CWE-352), and Laravel's own
+# cookie-secure/http-only/same-site trio (CWE-614/1004/1275) are all
+# filtered with no PHP-specific change needed. No rules/custom/php/
+# addition was needed for this pass -- revisit if a real corpus turns up a
+# gap the way MediChain did for Python's sql-string-formatting.yml.
+#
+# php/wordpress-plugins/security is left out: WordPress plugin development
+# (admin-ajax hooks, nonces, the WP database API) is a narrow CMS-specific
+# surface, not a general server-side PHP app, the same low-value-narrow-
+# integration call python/twilio/security and javascript/fbjs/security
+# already made.
+#
+# scanner/callgraph/php_syntax.py / php_entrypoints.py / php_index.py give
+# these candidates the same cross-function reachability tracing every
+# other language here gets: a `#[Route(...)]` PHP attribute (Symfony's
+# modern style, and third-party attribute-routing packages some Laravel
+# projects add) or the older `@Route(...)` PHPDoc annotation on a method is
+# proof; Laravel's `Route::get('/x', $handler)` facade call is resolved the
+# same way Go/Rust/C# resolve a route-registration call, except its named-
+# reference search is global rather than same-file, since a Laravel routes
+# file and the controller it wires up are almost always different files.
+# See scanner/callgraph/__init__.py's own PHP paragraph for what else is
+# structurally different (`$this` has no fixed grammar production the way
+# every earlier class-based language's own keyword does).
+
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
   - rules/vendor/semgrep-rules/java/servlets/security
@@ -359,4 +406,8 @@ configs:
   - rules/vendor/semgrep-rules/csharp/lang/security
   - rules/vendor/semgrep-rules/csharp/dotnet/security
   - rules/vendor/semgrep-rules/csharp/razor/security
+  - rules/vendor/semgrep-rules/php/lang/security
+  - rules/vendor/semgrep-rules/php/laravel/security
+  - rules/vendor/semgrep-rules/php/symfony/security
+  - rules/vendor/semgrep-rules/php/doctrine/security
   - rules/custom
