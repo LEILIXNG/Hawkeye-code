@@ -184,34 +184,10 @@ resolution both do. The other Scala-specific grammar trap: an
 (`class X extends Base with Greeter with Loggable`) all share the *same*
 field name, so reading the full supertype list means filtering by node
 type rather than a single field lookup.
-
-Elixir support (2026-09-17), elixir_syntax.py / elixir_index.py, same
-model reuse a tenth time and the most structurally unusual language here:
-Elixir is not object-oriented at all, so there is no owner hierarchy and
-no `this`/`self` receiver, and -- unlike every earlier language's own
-dedicated syntax for a class or a method declaration -- there is no
-dedicated syntax for a module or a function declaration either.
-`defmodule`, `def`/`defp`, a Phoenix router macro (`get`, `scope`,
-`resources`) and an ordinary application function call are all the
-*same* `call` node in this grammar, told apart only by what the call's
-own `target` identifier's text says. Phoenix's router recognises entry
-points inline, unlike Scala's Play: `get "/path", PageController,
-:index` is ordinary Elixir syntax parsed by the same grammar as
-everything else, resolved globally across the whole index the same way
-PHP's Laravel facade calls and Ruby's routes.rb entries both are.
-`resources "/path", Controller` is Phoenix's own RESTful macro,
-structurally identical to Rails' `resources` except one of its seven
-conventional action names differs (`delete`, not `destroy`). A `scope
-"/prefix", AliasModule do ... end` block threads a path prefix through
-however many of them nest around the leaf verb call, the same
-`route_prefix`-threading trade Kotlin's Ktor recognition already made.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
                                            SERVLET_ENTRY_METHODS, SERVLET_SUPERTYPES)
-from scanner.callgraph.elixir_entrypoints import HTTP_VERBS as ELIXIR_HTTP_VERBS
-from scanner.callgraph.elixir_entrypoints import RESOURCES_ACTIONS as ELIXIR_RESOURCES_ACTIONS
-from scanner.callgraph.elixir_index import index_elixir_workspace
 from scanner.callgraph.go_entrypoints import HANDLER_PARAM_TYPES
 from scanner.callgraph.go_entrypoints import HTTP_METHOD_NAMES as GO_HTTP_METHOD_NAMES
 from scanner.callgraph.go_index import index_go_workspace
@@ -244,8 +220,7 @@ from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_en
 
 __all__ = [
     "ANY_ARITY", "CSHARP_CONTROLLER_SUPERTYPES", "CSHARP_HANDLER_PARAM_TYPES",
-    "DJANGO_VIEW_SUPERTYPES", "ELIXIR_HTTP_VERBS", "ELIXIR_RESOURCES_ACTIONS",
-    "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
+    "DJANGO_VIEW_SUPERTYPES", "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
     "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "KOTLIN_HTTP_VERBS", "KOTLIN_MAPPING_VERBS", "MAX_DEPTH",
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
     "PHP_ROUTE_FACADE_METHODS",
@@ -254,8 +229,8 @@ __all__ = [
     "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS", "SCALA_HTTP_VERBS",
     "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
-    "index_cpp_workspace", "index_csharp_workspace", "index_elixir_workspace", "index_go_workspace",
-    "index_js_workspace", "index_kotlin_workspace", "index_mybatis_mappers", "index_php_workspace",
-    "index_play_routes", "index_python_workspace", "index_ruby_workspace", "index_rust_workspace",
-    "index_scala_workspace", "index_workspace", "trace_to_entry_points",
+    "index_cpp_workspace", "index_csharp_workspace", "index_go_workspace", "index_js_workspace",
+    "index_kotlin_workspace", "index_mybatis_mappers", "index_php_workspace", "index_play_routes",
+    "index_python_workspace", "index_ruby_workspace", "index_rust_workspace", "index_scala_workspace",
+    "index_workspace", "trace_to_entry_points",
 ]
