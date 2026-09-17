@@ -1,0 +1,79 @@
+# SQL built by string formatting, without requiring the interpolated value
+# to be visibly a request value in the same function.
+#
+# Measured gap, found scanning a real generated project (MediChain, a
+# deliberately-vulnerable teaching app -- see the conversation this rule
+# was added from). The vendored python/flask and python/django
+# tainted-sql-string rules already match this exact string-construction
+# shape, but both are `mode: taint` with pattern-sources restricted to two
+# cases: a literal `flask.request.$ANYTHING` access, or the interpolated
+# variable being, syntactically, a route-decorated function's own
+# parameter. Neither shape covers the extremely common case of a
+# service/DAO-layer method that receives the value as an ordinary
+# parameter from whatever view function already pulled it off the request
+# one layer up -- semgrep OSS taint analysis is intraprocedural (see
+# path-traversal.yml's header for the general case), so the source
+# condition can never be satisfied there regardless of where the value
+# actually came from.
+#
+# MediChain's own AuthenticationService.login(self, username, password)
+# builds `f"SELECT * FROM users WHERE username = '{username}'"` from a
+# username parameter Flask's view function already extracted from the
+# request body one call up -- structurally identical to the sink
+# tainted-sql-string already recognizes, but zero matches for it, because
+# `username` is a plain method parameter here, not `flask.request.form[...]`
+# and not a route handler's own argument. This rule drops the source
+# restriction entirely and matches on the sink shape alone, the same
+# design already used by command-injection.yml, path-traversal.yml and
+# ssrf.yml: Semgrep's job is to surface the sink, not prove the flow --
+# scanner/callgraph.py's Flask/Django/FastAPI entry-point recognition
+# rebuilds the call chain back to the real HTTP source for the LLM verify
+# stage to judge (docs/framework.md sections 3-4).
+#
+# Deliberately not narrowed to a specific execute-call sink (a `$CUR.
+# execute($SQL)` requirement, the way the vendored psycopg-sqli rule is):
+# MediChain's real cursor.execute() call lives inside a shared
+# `db_manager.execute_raw_sql(query)` helper in a third file, one more hop
+# than either the tainted-sql-string or psycopg-sqli sink patterns reach --
+# matching on the string construction itself, exactly as tainted-sql-string
+# already does, sidesteps needing to know the caller's helper method name
+# at all.
+#
+# Measured on MediChain itself: the vendored rules found 3 SQLi sink
+# locations project-wide, all of them inline in a Flask route handler; this
+# rule adds 29 more, distributed across every service's DAO/repository
+# layer (patient_service/models.py, user_service/models.py, data_exchange/
+# models.py, audit_service/models.py and middleware.py) -- every one of
+# them a plain method receiving an id or search term as an ordinary
+# parameter, exactly the shape described above. `authentication.py`'s own
+# login() and get_user_by_id() are among them: the latter is reachable
+# through this project's separately-documented authentication-bypass flaw
+# (a forged token's embedded user id flows straight into this query), so
+# the two vulnerabilities compound -- a gap this project's rule library
+# could not see at all until now.
+rules:
+  - id: sql-string-built-from-nonconstant-segment
+    languages: [python]
+    severity: WARNING
+    message: >
+      A SQL statement is built by string formatting (an f-string, %-formatting,
+      .format(), or concatenation) with a segment that is not a compile-time
+      constant. If that segment derives from the request -- directly, or by
+      way of a service/DAO method that received it as an ordinary parameter --
+      this is SQL injection. Use a parameterized query or an ORM instead of
+      building the statement text by hand.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp:
+        - "A03:2021 - Injection"
+      source: sast-local/rules/custom
+    patterns:
+      - pattern-either:
+          - pattern: '"$SQLSTR" + ...'
+          - pattern: '"$SQLSTR" % ...'
+          - pattern: '"$SQLSTR".format(...)'
+          - pattern: 'f"$SQLSTR{...}..."'
+      - metavariable-regex:
+          metavariable: $SQLSTR
+          regex: \s*(?i)(select|delete|insert|create|update|alter|drop)\b.*
