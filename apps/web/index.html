@@ -470,11 +470,12 @@
       <div class="detail-header">
         <h3 id="detail-title"></h3>
         <span class="detail-actions" id="detail-actions-wrap">
-          <a id="detail-export-md" download data-i18n="export.md"></a>
-          <a id="detail-export-html" download data-i18n="export.html"></a>
+          <a id="detail-export-md" data-i18n="export.md"></a>
+          <a id="detail-export-html" data-i18n="export.html"></a>
           <a id="detail-open-link" target="_blank" data-i18n="detail.openLink"></a>
         </span>
       </div>
+      <p id="detail-export-msg"></p>
       <div id="detail-body"></div>
     </div>
   </section>
@@ -1425,9 +1426,54 @@ function findingCardHtml(item) {
     </details>`;
 }
 
+function filenameFromDisposition(disposition) {
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition || "");
+  if (star) return decodeURIComponent(star[1]);
+  const plain = /filename="([^"]+)"/i.exec(disposition || "");
+  return plain ? plain[1] : null;
+}
+
+// A plain `<a download href="...">` relies on the platform's own download
+// manager to read the filename off Content-Disposition -- which works in a
+// normal browser tab, but in the desktop window's WebView2/pywebview stack
+// the native Save dialog shows up pre-filled with a temp-looking name
+// instead (pywebview's on_download_starting reads args.ResultFilePath's
+// basename, and that property does not reliably reflect Content-Disposition
+// for a dynamically-generated response). Fetching the export ourselves and
+// downloading it as a blob sidesteps that: a blob's suggested filename comes
+// straight from the anchor's own `download` attribute, which we set
+// explicitly here, so there is no Content-Disposition parsing left for any
+// platform's download manager to get wrong.
+async function exportReport(event, fallbackName) {
+  event.preventDefault();
+  const link = event.currentTarget;
+  const url = link.getAttribute("href");
+  const msg = $("detail-export-msg");
+  setMsg(msg, "", "");
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(resp.statusText);
+    const blob = await resp.blob();
+    const filename = filenameFromDisposition(resp.headers.get("content-disposition")) || fallbackName;
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch (e) {
+    setMsg(msg, t("msg.requestFail")(e.message), "err");
+  }
+}
+
 function setExportLinks(scanId, mdId, htmlId) {
-  $(mdId).href = `/scans/${scanId}/export?format=md&lang=${lang}`;
-  $(htmlId).href = `/scans/${scanId}/export?format=html`;
+  const mdEl = $(mdId), htmlEl = $(htmlId);
+  mdEl.href = `/scans/${scanId}/export?format=md&lang=${lang}`;
+  htmlEl.href = `/scans/${scanId}/export?format=html`;
+  mdEl.onclick = (e) => exportReport(e, `${scanId.slice(0, 8)}.md`);
+  htmlEl.onclick = (e) => exportReport(e, `${scanId.slice(0, 8)}.html`);
 }
 
 async function selectScan(tr, project, scan) {
