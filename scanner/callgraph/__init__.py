@@ -160,6 +160,30 @@ Kotlin-specific grammar trap: a call ending in a trailing lambda block
 carries that lambda as a second, separate child rather than inside its
 `value_arguments`, so recognising `get("/x") { ... }` means checking two
 different places depending on whether the call ends in a block.
+
+Scala support (2026-09-17), scala_syntax.py / scala_index.py / (for
+routing) scala_routes.py, same model reuse a ninth time. The most
+structurally unusual language here: Play Framework, the one Scala web
+framework this project targets, has no annotation, decorator or
+registration-call convention on a controller action at all -- `def
+index() = Action { ... }` is an ordinary method indistinguishable from
+any other by source alone, so scala_index.py recognises no entry point on
+its own. The entire signal lives in `conf/routes`, a fixed-column text
+format that is not Scala syntax -- `GET /users/:id
+controllers.UserController.show(id: String)` -- read by scala_routes.py's
+own line-level parser rather than tree-sitter, the same "external file
+names the method, source never proves it" shape mybatis.py already uses
+for a MyBatis mapper statement. The one real difference from mybatis.py:
+a mapper's XML span *is* the sink and gets a brand new synthetic Method,
+while a routes line only ever *points at* an existing one, so
+scala_routes.py updates a Method already built by scala_index.py in
+place, matching globally by controller class name and action method name
+the same way PHP's Laravel facade resolution and Ruby's routes.rb
+resolution both do. The other Scala-specific grammar trap: an
+`extends_clause`'s base class and every `with`-mixed-in trait
+(`class X extends Base with Greeter with Loggable`) all share the *same*
+field name, so reading the full supertype list means filtering by node
+type rather than a single field lookup.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -189,6 +213,9 @@ from scanner.callgraph.ruby_index import index_ruby_workspace
 from scanner.callgraph.rust_entrypoints import HANDLER_PARAM_TYPES as RUST_HANDLER_PARAM_TYPES
 from scanner.callgraph.rust_entrypoints import HTTP_ROUTE_VERBS as RUST_HTTP_ROUTE_VERBS
 from scanner.callgraph.rust_index import index_rust_workspace
+from scanner.callgraph.scala_index import index_scala_workspace
+from scanner.callgraph.scala_routes import HTTP_VERBS as SCALA_HTTP_VERBS
+from scanner.callgraph.scala_routes import index_play_routes
 from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_entry_points
 
 __all__ = [
@@ -199,10 +226,11 @@ __all__ = [
     "PHP_ROUTE_FACADE_METHODS",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
     "ROUTE_DECORATOR_NAMES", "RUBY_CONTROLLER_SUPERTYPES", "RUBY_HTTP_VERBS",
-    "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS",
+    "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS", "SCALA_HTTP_VERBS",
     "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
     "index_cpp_workspace", "index_csharp_workspace", "index_go_workspace", "index_js_workspace",
-    "index_kotlin_workspace", "index_mybatis_mappers", "index_php_workspace", "index_python_workspace",
-    "index_ruby_workspace", "index_rust_workspace", "index_workspace", "trace_to_entry_points",
+    "index_kotlin_workspace", "index_mybatis_mappers", "index_php_workspace", "index_play_routes",
+    "index_python_workspace", "index_ruby_workspace", "index_rust_workspace", "index_scala_workspace",
+    "index_workspace", "trace_to_entry_points",
 ]
