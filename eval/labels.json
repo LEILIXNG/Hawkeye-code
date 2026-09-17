@@ -310,5 +310,23 @@
     "line": 35,
     "expected_reachable": "no",
     "note": "php_demo: CommandService::orphanVulnerableHelper() has the identical exec($cmd) call as runPing() (line 14) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
+  },
+  {
+    "file": "command_service.rb",
+    "line": 14,
+    "expected_reachable": "yes",
+    "note": "ruby_demo: CommandService#run_ping interpolates host straight into system(); its only caller is DiagnosticsController#ping, reached via routes.rb's get '/ping', to: 'diagnostics#ping' -- exercises Ruby's per-verb route-registration resolution and cross-class call-graph tracing"
+  },
+  {
+    "file": "user_repository.rb",
+    "line": 11,
+    "expected_reachable": "yes",
+    "note": "ruby_demo: UserRepository#find_user hands ActiveRecord's where a raw SQL fragment interpolated from params; its only caller is UsersController#show, reached via routes.rb's resources :users, only: [:show] macro -- exercises Ruby's resources RESTful-route expansion"
+  },
+  {
+    "file": "command_service.rb",
+    "line": 26,
+    "expected_reachable": "no",
+    "note": "ruby_demo: CommandService#orphan_vulnerable_helper has the identical system(cmd) call as run_ping() (line 14) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]
