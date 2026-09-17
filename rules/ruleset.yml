@@ -440,6 +440,45 @@ exclude_paths:
 # call. See scanner/callgraph/__init__.py's own Kotlin paragraph for the
 # grammar quirks that shaped that threading.
 
+# Scala (2026-09-17, rule library; call graph added the same day). Deep,
+# close to Java's own depth -- unlike Kotlin's thin bucket, no custom-rule
+# gap needed here. scala/lang/security/audit carries real source -> sink
+# rules: dangerous-shell-run and scala-dangerous-process-run/dangerous-
+# seq-run (CWE-78, sys.process's `Seq("sh", "-c", $CMD).!`/`.!!` shell-
+# invocation shape, plain pattern rules, verified directly with `semgrep
+# --config` against a hand-written sample), tainted-sql-string (CWE-89,
+# mode: taint -- notably its own pattern-sources entry is any parameter of
+# *any* enclosing method, `def $CTRL(..., $PARAM: $TYPE, ...) = ...`, not
+# just an http.request access, which is what makes call-graph reachability
+# tracing matter here the same way Ruby's dangerous-exec does), dispatch-
+# ssrf/io-source-ssrf/scalaj-http-ssrf (CWE-918), path-traversal-fromfile
+# (CWE-22), and three DTD-disabled XXE rules (CWE-611). scala/play/security
+# adds Play-specific coverage this project's call graph can now trace
+# reachability through: tainted-sql-from-http-request and tainted-slick-
+# sqli (CWE-89, Slick ORM), tainted-html-response/twirl-html-var (CWE-79,
+# XSS in Play's Twirl templates), webservice-ssrf, and CSRF/cookie config
+# checks. scala/slick/security rounds out two more Slick-specific SQLi
+# rules. scala/jwt-scala/security and scala/scala-jwt/security both cover
+# hardcoded JWT secrets (two separate vendored packages for the same
+# concern, kept as-is). scala/lang/correctness is left out, mirroring
+# every other language's own security-directories-only selection.
+#
+# CWE crossover with the denylist below: insecure-random (CWE-330) and
+# conf-insecure-cookie-settings (CWE-614) are both filtered with no
+# Scala-specific change needed.
+#
+# scanner/callgraph/scala_syntax.py / scala_index.py give these
+# candidates the same call-graph resolution every other language here
+# gets, but the entry-point proof itself comes from a different half of
+# this project entirely: scala_routes.py reads Play's `conf/routes` (a
+# fixed-column text format, not Scala syntax at all) and links each
+# `VERB path controller.action` line onto the Scala Method it names,
+# globally across the whole index the same way PHP's Laravel facade
+# resolution and Ruby's routes.rb resolution both do. See
+# scanner/callgraph/__init__.py's own Scala paragraph for why this is the
+# one language here whose call-graph module recognises no entry point on
+# its own at all.
+
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
   - rules/vendor/semgrep-rules/java/servlets/security
@@ -505,4 +544,9 @@ configs:
   - rules/vendor/semgrep-rules/ruby/rails/security
   - rules/vendor/semgrep-rules/ruby/jwt/security
   - rules/vendor/semgrep-rules/kotlin/lang/security
+  - rules/vendor/semgrep-rules/scala/lang/security
+  - rules/vendor/semgrep-rules/scala/play/security
+  - rules/vendor/semgrep-rules/scala/slick/security
+  - rules/vendor/semgrep-rules/scala/jwt-scala/security
+  - rules/vendor/semgrep-rules/scala/scala-jwt/security
   - rules/custom
