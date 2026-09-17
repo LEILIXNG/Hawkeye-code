@@ -82,6 +82,22 @@ Go/JS's registration-call recognition for axum and actix's builder style
 (`.route(path, get(handler))`, `.route(path, web::get().to(handler))`).
 Self-calls are simpler than Go's: `self` is a fixed grammar production here,
 not an author-named receiver variable that has to be compared by text.
+
+C# support (2026-09-17), csharp_syntax.py / csharp_entrypoints.py /
+csharp_index.py, same model reuse a fifth time. Structurally closest to
+Java's: methods live inside class/interface bodies, `this` is a fixed
+keyword, and (unlike Rust's scattered `impl Trait for Type` blocks)
+Owner.supertypes still accumulates per type rather than being overwritten,
+here because a `partial class` can state different slices of its base list
+across several files. Entry points are three-tiered like Java's: an
+HTTP-verb/Route attribute on the method is proof (ASP.NET Core attribute
+routing); a public method with no such attribute on a type whose base list
+includes Controller/ControllerBase is proof too (MVC's convention routing,
+where every public action is reachable by name alone); an
+HttpContext/HttpRequest/HttpResponse-typed parameter with neither is a
+hint. Minimal-API registration (`app.MapGet("/x", handler)`) is a fourth,
+call-shaped signal read the same way Go/Rust resolve a named handler
+reference or index an inline lambda at the call site.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -95,6 +111,9 @@ from scanner.callgraph.js_entrypoints import HTTP_METHOD_NAMES, NEST_DECORATOR_N
 from scanner.callgraph.js_index import index_js_workspace
 from scanner.callgraph.model import ANY_ARITY, MAX_DEPTH, Call, Index, Method, Owner
 from scanner.callgraph.mybatis import MYBATIS_STATEMENT_TAGS, index_mybatis_mappers
+from scanner.callgraph.csharp_entrypoints import CONTROLLER_SUPERTYPES as CSHARP_CONTROLLER_SUPERTYPES
+from scanner.callgraph.csharp_entrypoints import HANDLER_PARAM_TYPES as CSHARP_HANDLER_PARAM_TYPES
+from scanner.callgraph.csharp_index import index_csharp_workspace
 from scanner.callgraph.python_entrypoints import DJANGO_VIEW_SUPERTYPES, ROUTE_DECORATOR_NAMES
 from scanner.callgraph.python_index import index_python_workspace
 from scanner.callgraph.rust_entrypoints import HANDLER_PARAM_TYPES as RUST_HANDLER_PARAM_TYPES
@@ -103,14 +122,15 @@ from scanner.callgraph.rust_index import index_rust_workspace
 from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_entry_points
 
 __all__ = [
-    "ANY_ARITY", "DJANGO_VIEW_SUPERTYPES", "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
+    "ANY_ARITY", "CSHARP_CONTROLLER_SUPERTYPES", "CSHARP_HANDLER_PARAM_TYPES",
+    "DJANGO_VIEW_SUPERTYPES", "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
     "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
     "ROUTE_DECORATOR_NAMES", "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS",
     "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
-    "index_cpp_workspace", "index_go_workspace", "index_js_workspace", "index_mybatis_mappers",
-    "index_python_workspace", "index_rust_workspace", "index_workspace",
+    "index_cpp_workspace", "index_csharp_workspace", "index_go_workspace", "index_js_workspace",
+    "index_mybatis_mappers", "index_python_workspace", "index_rust_workspace", "index_workspace",
     "trace_to_entry_points",
 ]

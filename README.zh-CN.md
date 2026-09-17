@@ -6,7 +6,7 @@
 
 <p align="center">中文 · <a href="README.md">English</a></p>
 
-一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）、Go（net/http、gorilla/mux、chi、gin、echo）、C++，以及 Rust（actix-web、Rocket、axum）都有完整的跨文件调用图可达性追踪。C# 目前只接入了规则库（SQL/命令/LDAP/XPath 注入、SSRF、XXE、路径穿越、十种不安全反序列化写法等），还没有调用图，所以 C# 的发现只能靠函数体本身判断。
+一款面向服务端 Web 应用的本地 SAST 工具。Semgrep 找出候选 sink，自研跨文件调用图还原请求到达它的路径，LLM 研判可达性并给出修复建议。Java/Spring、Python（Flask、Django、FastAPI）、JavaScript/TypeScript（Express、Koa、NestJS）、Go（net/http、gorilla/mux、chi、gin、echo）、C++、Rust（actix-web、Rocket、axum），以及 C#（ASP.NET Core 属性路由、MVC 约定路由、Minimal API）都有完整的跨文件调用图可达性追踪。
 
 只报有完整 source→sink 路径的漏洞。全程跑在你自己的机器上。
 
@@ -105,11 +105,11 @@ python scripts/04_translate.py          # 可选
 python -m pytest tests/ -v
 ```
 
-583 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、六组语言的调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
+606 条单元测试覆盖确定性的那一半——去重、路径处理、上下文提取、七组语言的调用图、规则集契约、HTTP API，以及启动器/窗口的生命周期逻辑。没有任何测试会真的调 LLM；LLM 的效果单独用 `eval/labels.json` 跟踪。
 
 ## 实现要点
 
-- **跨文件分析，六组语言。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 从 sink 反向沿调用者跨文件查找入口。Java、Python 和 JavaScript/TypeScript 保留各自的框架入口识别；Go 识别 net/http、gorilla/mux、chi、gin、echo 的路由注册。C++ 识别 Crow、Drogon、Oat++、gRPC 入口，并利用 tree-sitter 的类型、所有者、重载、模板调用、本地 include 宏和常见函数指针流减少歧义边。Rust 识别 actix-web/Rocket 的属性宏（`#[get(“/x”)]`）和 axum/actix 的路由注册调用（`.route(path, get(handler))`）；所有者关系来自最近的 `impl` 块而非类体，一个类型的 trait 实现可以分散在任意多个 `impl Trait for Type` 块里，全部会累加而不是互相覆盖。混合语言项目共用同一张调用图。
+- **跨文件分析，七组语言。** Semgrep OSS 的污点分析停在方法边界。`scanner/callgraph/` 从 sink 反向沿调用者跨文件查找入口。Java、Python 和 JavaScript/TypeScript 保留各自的框架入口识别；Go 识别 net/http、gorilla/mux、chi、gin、echo 的路由注册。C++ 识别 Crow、Drogon、Oat++、gRPC 入口，并利用 tree-sitter 的类型、所有者、重载、模板调用、本地 include 宏和常见函数指针流减少歧义边。Rust 识别 actix-web/Rocket 的属性宏（`#[get(“/x”)]`）和 axum/actix 的路由注册调用（`.route(path, get(handler))`）；所有者关系来自最近的 `impl` 块而非类体，一个类型的 trait 实现可以分散在任意多个 `impl Trait for Type` 块里，全部会累加而不是互相覆盖。C# 识别 ASP.NET Core 自己的属性路由（`[HttpGet("{id}")]`）、MVC 的约定路由（Controller/ControllerBase 派生类上任意 public 方法）和 Minimal API 注册调用（`app.MapGet("/x", handler)`）；`partial class` 分散在多处的基类列表声明会像 Rust 的 trait 实现一样累加。混合语言项目共用同一张调用图。
 - **Semgrep 出候选，LLM 判断数据流。** 请求驱动候选继续使用 `reachable` / `sanitized` / `confidence` / `reasoning` 契约；确定性的 C++ 内存、空指针、敏感信息和文件操作问题由规则验证器判断，标记为”静态确认”，不再交给 LLM 错判 HTTP 请求可达性。
 - **混合范围。** 通用静态属性规则仍按 CWE 排除；带确定性验证器的自定义规则可以显式进入静态判定通道。
 - **危险级别按 CVSS 定，不看引擎自己的 severity。** Semgrep 只会给 ERROR/WARNING，区分不了未授权 SQL 注入和弱哈希。`scanner/cvss.py` 把每个 CWE 映射到一条 v3.1 基准向量并按公式算分，再由可达性给这个档位定级——被判定不可达的发现无论基准分多高都落到最低档。
@@ -121,7 +121,7 @@ python -m pytest tests/ -v
 
 Phase 1 已完成——上传 → 扫描 → 报告全链路跑通。
 
-- `eval/labels.json` 现有 46 条人工标注：19 条 Java、9 条 Python、7 条 JavaScript、8 条 C++（`eval/fixtures/cpp_demo`）和 3 条 Rust（`eval/fixtures/rust_demo`）。C++ 命令执行规则保留请求可达性判断；确定性的 CPP004–CPP008 使用静态判定通道。Rust 的三条标注走的是和 Python/JS/Go 一样的请求可达性路径：两个 sink 分别经一个 actix-web handler 和一个辅助函数到达，一条是没人调用的孤儿函数。
+- `eval/labels.json` 现有 49 条人工标注：19 条 Java、9 条 Python、7 条 JavaScript、8 条 C++（`eval/fixtures/cpp_demo`）、3 条 Rust（`eval/fixtures/rust_demo`）和 3 条 C#（`eval/fixtures/csharp_demo`）。C++ 命令执行规则保留请求可达性判断；确定性的 CPP004–CPP008 使用静态判定通道。Rust 和 C# 的这两组三条标注走的都是和 Python/JS/Go 一样的请求可达性路径：两个 sink 分别经一个 handler 和一个服务层辅助函数到达，一条是没人调用的孤儿函数。
 - C++ 解析只读取源码，不执行构建。必须依赖编译数据库才能确定的条件编译、生成代码、虚调用和复杂函数指针目标仍采取保守结果，不会伪装成完全精确。
 - 复核层在两次完全相同的重跑之间约有 16% 的判定会翻转，所以任何一组标注上 ±1 的变化都属于噪声。引擎改动一律用确定性指标论证。
 - Java 那部分已在一个真实的 13 模块 Maven 项目上实测过，不只跑教学靶场。

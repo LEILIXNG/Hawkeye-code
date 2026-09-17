@@ -115,12 +115,8 @@
 # paragraph for what is structurally different about how Rust's ownership
 # and trait-supertype relationships get read.
 #
-# C# (2026-09-17): rule library only, no scanner/callgraph/ indexer -- same
-# scope Rust started with, and for the same reason (no tree-sitter-csharp
-# dependency here yet, so a C# candidate's reachability is judged from its
-# own function body, with no request-entry-point evidence either way).
-#
-# Unlike Rust, the vendored csharp rules are close to Java's own depth:
+# C# (2026-09-17, rule library; call graph added the same day). Unlike
+# Rust, the vendored csharp rules are close to Java's own depth:
 # csharp/lang/security (with its nested ad, cryptography, filesystem, http,
 # injections, insecure-deserialization, memory, regular-expression-dos,
 # sqli, ssrf and xxe subdirectories -- one directory config here sweeps up
@@ -143,6 +139,18 @@
 # mirroring every other language's selection logic: only `security/`
 # directories are in scope, non-security correctness/best-practice rules
 # are not (see the Java selection note at the top of this file).
+#
+# scanner/callgraph/csharp_syntax.py / csharp_entrypoints.py / csharp_index.py
+# give these candidates the same cross-function reachability tracing every
+# other language here gets: an HTTP-verb/Route attribute on the method is
+# proof (ASP.NET Core attribute routing); a public method with no such
+# attribute on a type whose base list includes Controller/ControllerBase is
+# proof too (MVC's convention routing); minimal-API registration
+# (app.MapGet("/x", handler)) is resolved the same way Go/Rust resolve a
+# named handler reference or index an inline lambda at the call site. See
+# scanner/callgraph/__init__.py's own C# paragraph for what is structurally
+# different about how a partial class's scattered base-list declarations
+# get read.
 
 # Rules that fire often enough to be a real drag on a scan but have never
 # produced a true finding on this project's targets. Each id is passed to

@@ -274,5 +274,23 @@
     "line": 57,
     "expected_reachable": "no",
     "note": "rust_demo: orphan_vulnerable_helper() has the identical Command::new(\"sh\").arg(\"-c\") call as run_ping() (line 16) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
+  },
+  {
+    "file": "Program.cs",
+    "line": 64,
+    "expected_reachable": "yes",
+    "note": "csharp_demo: CommandService.RunPing() passes host straight to Process.Start(); its only caller is DiagnosticsController.Ping(), an ASP.NET Core [HttpGet(\"ping\")] action -- exercises C#'s attribute-routing entry-point recognition and cross-class call-graph tracing"
+  },
+  {
+    "file": "Program.cs",
+    "line": 85,
+    "expected_reachable": "yes",
+    "note": "csharp_demo: UserRepository.FindUser() builds a SQL string by concatenation from a username parameter, straight into SqlCommand.CommandText; its only caller is UsersController.GetUser(), an ASP.NET Core [HttpGet(\"users\")] action"
+  },
+  {
+    "file": "Program.cs",
+    "line": 106,
+    "expected_reachable": "no",
+    "note": "csharp_demo: OrphanService.OrphanVulnerableHelper() has the identical Process.Start(cmd) call as CommandService.RunPing() (line 64) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]
