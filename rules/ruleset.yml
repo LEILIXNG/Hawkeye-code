@@ -349,6 +349,55 @@ exclude_paths:
 # structurally different (`$this` has no fixed grammar production the way
 # every earlier class-based language's own keyword does).
 
+# Ruby (2026-09-17, rule library; call graph added the same day). As deep
+# as PHP's and C#'s: ruby/lang/security carries real source -> sink taint
+# rules -- dangerous-exec (CWE-94, command injection; its pattern-sources
+# include not just params/cookies but *any parameter of the enclosing
+# method*, which is what lets scanner/callgraph/ruby_index.py's own
+# call-graph reachability tracing matter here at all, the same way custom
+# plain-pattern rules do for Rust and PHP's exec-use/doctrine-dbal-
+# dangerous-query -- see the fixture files under eval/fixtures/ruby_demo
+# for why that distinction was checked directly against semgrep rather
+# than assumed), dangerous-open/dangerous-subshell/dangerous-syscall
+# (CWE-94), bad-deserialization (CWE-502, YAML/Marshal), file-disclosure
+# (CWE-22). ruby/rails/security adds real Rails-specific dataflow:
+# tainted-sql-string and check-sql (CWE-89), ruby-pg-sqli (CWE-89, the pg
+# gem), avoid-tainted-shell-call (CWE-78), avoid-tainted-http-request
+# (CWE-918, SSRF), avoid-tainted-file-access/avoid-render-dynamic-path/
+# check-dynamic-render-local-file-include (CWE-22), a dozen XSS rules
+# (CWE-79: avoid-raw, avoid-html-safe, avoid-content-tag, ...), two XXE
+# rules (CWE-611) and open-redirect coverage (CWE-601). ruby/jwt/security
+# rounds out JWT algorithm-confusion and hardcoded-secret findings. No
+# rules/custom/ruby/ addition was needed for this pass.
+#
+# CWE crossover with the denylist below, the same trim every other
+# language already gets: force-ssl-false (CWE-311), insufficient-rsa-
+# key-size (CWE-326), md5-used-as-password and ruby-jwt-none-alg
+# (CWE-327), weak-hashes-md5/weak-hashes-sha1/sha224-hash (CWE-328),
+# ssl-mode-no-verify (CWE-295), missing-csrf-protection/rails-skip-
+# forgery-protection (CWE-352) and check-cookie-store-session-security-
+# attributes (CWE-1004) are all filtered with no Ruby-specific change
+# needed.
+#
+# ruby/aws-lambda/security is left out, mirroring every other language's
+# own serverless-specific trim (java/python/javascript/go's aws-lambda
+# exclusions).
+#
+# scanner/callgraph/ruby_syntax.py / ruby_entrypoints.py / ruby_index.py
+# give these candidates the same cross-function reachability tracing every
+# other language here gets. Rails routing has no annotation/attribute
+# tier at all (routes.rb is the only source of truth), so entry points
+# come from two routes.rb signals -- a per-verb call (`get '/x', to:
+# 'ctrl#action'`) and the `resources :name` RESTful macro, both resolved
+# globally across the whole index the same way PHP's Laravel facade
+# resolution is -- plus a hint (not proof, unlike C#'s otherwise-identical
+# convention-routing tier: Rails does not expose every public controller
+# method the way ASP.NET MVC's own convention routing does) for a public
+# method on an ApplicationController/ActionController::Base subclass. See
+# scanner/callgraph/__init__.py's own Ruby paragraph for the grammar traps
+# that shaped this module (visibility-flipping calls, invisible bareword
+# calls, `def self.foo`'s distinct node type).
+
 configs:
   - rules/vendor/semgrep-rules/java/lang/security
   - rules/vendor/semgrep-rules/java/servlets/security
@@ -410,4 +459,7 @@ configs:
   - rules/vendor/semgrep-rules/php/laravel/security
   - rules/vendor/semgrep-rules/php/symfony/security
   - rules/vendor/semgrep-rules/php/doctrine/security
+  - rules/vendor/semgrep-rules/ruby/lang/security
+  - rules/vendor/semgrep-rules/ruby/rails/security
+  - rules/vendor/semgrep-rules/ruby/jwt/security
   - rules/custom
