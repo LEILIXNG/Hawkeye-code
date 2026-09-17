@@ -13,6 +13,7 @@ from scanner.callgraph.csharp_index import index_csharp_workspace
 from scanner.callgraph.entrypoints import _entry_reason
 from scanner.callgraph.go_index import index_go_workspace
 from scanner.callgraph.js_index import index_js_workspace
+from scanner.callgraph.kotlin_index import index_kotlin_workspace
 from scanner.callgraph.model import Call, Index, Method, Owner
 from scanner.callgraph.mybatis import index_mybatis_mappers
 from scanner.callgraph.php_index import index_php_workspace
@@ -33,9 +34,9 @@ IDENTIFIER_LITERAL = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{2,63}")
 
 
 def index_workspace(root: Path, parser: Parser | None = None) -> Index:
-    """Parse supported Java, Python, JS/TS, Go, C++, Rust, C#, PHP and Ruby
-    files into one shared index of methods and call sites, then link the
-    MyBatis mapper statements onto the interfaces they implement.
+    """Parse supported Java, Python, JS/TS, Go, C++, Rust, C#, PHP, Ruby
+    and Kotlin files into one shared index of methods and call sites, then
+    link the MyBatis mapper statements onto the interfaces they implement.
 
     One index rather than one per language: Method, Call and Owner (see
     model.py) carry nothing language-specific, and traverse.py's BFS does
@@ -62,6 +63,7 @@ def index_workspace(root: Path, parser: Parser | None = None) -> Index:
     index_csharp_workspace(root, index)
     index_php_workspace(root, index)
     index_ruby_workspace(root, index)
+    index_kotlin_workspace(root, index)
     _build_ancestors(index)
     index_mybatis_mappers(root, index)
     return index

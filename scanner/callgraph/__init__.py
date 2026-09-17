@@ -141,6 +141,25 @@ unconditionally. The one call shape invisible to this module: a bare,
 zero-argument, no-parens call (`helper`) is syntactically indistinguishable
 from a local-variable read in this grammar, so it produces no Call edge --
 a known gap, not attempted here.
+
+Kotlin support (2026-09-17), kotlin_syntax.py / kotlin_entrypoints.py /
+kotlin_index.py, same model reuse an eighth time. Two frameworks, two
+unrelated entry-point shapes: Spring Boot on Kotlin is structurally
+identical to Spring Boot on Java (`@GetMapping("/x")` on a function is
+proof, read off a `modifiers` node the same way Java's annotations are).
+Ktor has no annotations at all -- a route is a *call* ending in a
+trailing lambda block (`get("/x") { ... }`), and unlike every earlier
+language's route-registration-call recognition, the real path is only
+ever half visible at the call site itself: `route("/api") { get("/users")
+{ ... } }` nests a path prefix through however many `route(...)` blocks
+wrap the leaf verb call, so kotlin_index.py's own `_walk()` threads a
+`route_prefix` string through the recursion, extended on entering a
+`route(...)` call's lambda body -- the one piece of state no earlier
+language's own version of `_walk()` needed to carry. The other
+Kotlin-specific grammar trap: a call ending in a trailing lambda block
+carries that lambda as a second, separate child rather than inside its
+`value_arguments`, so recognising `get("/x") { ... }` means checking two
+different places depending on whether the call ends in a block.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -152,6 +171,9 @@ from scanner.callgraph.index import IDENTIFIER_LITERAL, index_workspace
 from scanner.callgraph.cpp_index import index_cpp_workspace
 from scanner.callgraph.js_entrypoints import HTTP_METHOD_NAMES, NEST_DECORATOR_NAMES
 from scanner.callgraph.js_index import index_js_workspace
+from scanner.callgraph.kotlin_entrypoints import HTTP_VERBS as KOTLIN_HTTP_VERBS
+from scanner.callgraph.kotlin_entrypoints import MAPPING_VERBS as KOTLIN_MAPPING_VERBS
+from scanner.callgraph.kotlin_index import index_kotlin_workspace
 from scanner.callgraph.model import ANY_ARITY, MAX_DEPTH, Call, Index, Method, Owner
 from scanner.callgraph.mybatis import MYBATIS_STATEMENT_TAGS, index_mybatis_mappers
 from scanner.callgraph.csharp_entrypoints import CONTROLLER_SUPERTYPES as CSHARP_CONTROLLER_SUPERTYPES
@@ -172,7 +194,7 @@ from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_en
 __all__ = [
     "ANY_ARITY", "CSHARP_CONTROLLER_SUPERTYPES", "CSHARP_HANDLER_PARAM_TYPES",
     "DJANGO_VIEW_SUPERTYPES", "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
-    "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
+    "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "KOTLIN_HTTP_VERBS", "KOTLIN_MAPPING_VERBS", "MAX_DEPTH",
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
     "PHP_ROUTE_FACADE_METHODS",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
@@ -181,6 +203,6 @@ __all__ = [
     "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
     "index_cpp_workspace", "index_csharp_workspace", "index_go_workspace", "index_js_workspace",
-    "index_mybatis_mappers", "index_php_workspace", "index_python_workspace", "index_ruby_workspace",
-    "index_rust_workspace", "index_workspace", "trace_to_entry_points",
+    "index_kotlin_workspace", "index_mybatis_mappers", "index_php_workspace", "index_python_workspace",
+    "index_ruby_workspace", "index_rust_workspace", "index_workspace", "trace_to_entry_points",
 ]
