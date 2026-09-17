@@ -98,6 +98,26 @@ HttpContext/HttpRequest/HttpResponse-typed parameter with neither is a
 hint. Minimal-API registration (`app.MapGet("/x", handler)`) is a fourth,
 call-shaped signal read the same way Go/Rust resolve a named handler
 reference or index an inline lambda at the call site.
+
+PHP support (2026-09-17), php_syntax.py / php_entrypoints.py / php_index.py,
+same model reuse a sixth time. Structurally closest to C#'s: methods live in
+class bodies, a class states its base class and interface list in one
+place. `$this` is the one departure from every earlier class-based
+language's own fixed keyword: it parses as an ordinary `variable_name`
+whose text happens to be `this`, so receiver_is_self compares text instead
+of a node type. Entry points cover Laravel and Symfony, the two frameworks
+that share PHP 8's `#[Route(...)]` attribute syntax, plus Symfony's older
+`@Route(...)` PHPDoc annotation (read by regex over a comment's text, since
+a docblock carries no parsed argument list at all) and Laravel's
+`Route::get('/x', $handler)` facade calls -- the first route-registration
+call in this project where the handler almost always lives in a different
+file than the registration itself (`[Controller::class, 'method']` naming a
+class the routes file never declares), so its named-reference resolution
+pass matches globally across the whole index by owner class name and method
+name rather than the same-file search every earlier language's own version
+of that pass uses. The one hint with no parameter-type equivalent: a
+function body reading `$_GET`/`$_POST`/`$_REQUEST` directly, since PHP has
+no request-object parameter to check in the first place.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -114,6 +134,8 @@ from scanner.callgraph.mybatis import MYBATIS_STATEMENT_TAGS, index_mybatis_mapp
 from scanner.callgraph.csharp_entrypoints import CONTROLLER_SUPERTYPES as CSHARP_CONTROLLER_SUPERTYPES
 from scanner.callgraph.csharp_entrypoints import HANDLER_PARAM_TYPES as CSHARP_HANDLER_PARAM_TYPES
 from scanner.callgraph.csharp_index import index_csharp_workspace
+from scanner.callgraph.php_entrypoints import ROUTE_FACADE_METHODS as PHP_ROUTE_FACADE_METHODS
+from scanner.callgraph.php_index import index_php_workspace
 from scanner.callgraph.python_entrypoints import DJANGO_VIEW_SUPERTYPES, ROUTE_DECORATOR_NAMES
 from scanner.callgraph.python_index import index_python_workspace
 from scanner.callgraph.rust_entrypoints import HANDLER_PARAM_TYPES as RUST_HANDLER_PARAM_TYPES
@@ -126,11 +148,12 @@ __all__ = [
     "DJANGO_VIEW_SUPERTYPES", "GO_HTTP_METHOD_NAMES", "HANDLER_PARAM_TYPES",
     "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
+    "PHP_ROUTE_FACADE_METHODS",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
     "ROUTE_DECORATOR_NAMES", "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS",
     "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
     "index_cpp_workspace", "index_csharp_workspace", "index_go_workspace", "index_js_workspace",
-    "index_mybatis_mappers", "index_python_workspace", "index_rust_workspace", "index_workspace",
-    "trace_to_entry_points",
+    "index_mybatis_mappers", "index_php_workspace", "index_python_workspace", "index_rust_workspace",
+    "index_workspace", "trace_to_entry_points",
 ]
