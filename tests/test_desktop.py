@@ -347,11 +347,13 @@ class TestConsoleVisibility:
         fake_webview = types.SimpleNamespace(
             create_window=lambda *a, **k: FakeWindow(),
             start=lambda: None,
+            settings={"ALLOW_DOWNLOADS": False},
         )
         monkeypatch.setitem(sys.modules, "webview", fake_webview)
 
         assert desktop.run() == 0
         assert seen == [False, True]
+        assert fake_webview.settings["ALLOW_DOWNLOADS"] is True
 
     def test_run_restores_the_console_even_if_webview_blows_up(self, monkeypatch):
         seen = []
@@ -360,7 +362,8 @@ class TestConsoleVisibility:
         def boom(*a, **k):
             raise RuntimeError("no WebView2 runtime")
 
-        fake_webview = types.SimpleNamespace(create_window=boom, start=lambda: None)
+        fake_webview = types.SimpleNamespace(create_window=boom, start=lambda: None,
+                                             settings={"ALLOW_DOWNLOADS": False})
         monkeypatch.setitem(sys.modules, "webview", fake_webview)
 
         with pytest.raises(RuntimeError):

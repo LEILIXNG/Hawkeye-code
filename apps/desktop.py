@@ -281,6 +281,13 @@ def run() -> int:
     several, if more than one gets opened) closes."""
     import webview
 
+    # Off by default in pywebview: an <a download> click (the report export
+    # buttons) fires CoreWebView2.DownloadStarting, and with this False that
+    # handler sets args.Cancel = True and returns -- silently, no error the
+    # page or this process ever sees. Enabling it is what makes that handler
+    # fall through to its own native Save-As dialog instead.
+    webview.settings["ALLOW_DOWNLOADS"] = True
+
     _set_console_visible(False)
     try:
         owner = _Owner()
