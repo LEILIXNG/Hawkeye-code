@@ -328,5 +328,23 @@
     "line": 26,
     "expected_reachable": "no",
     "note": "ruby_demo: CommandService#orphan_vulnerable_helper has the identical system(cmd) call as run_ping() (line 14) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
+  },
+  {
+    "file": "CommandService.kt",
+    "line": 7,
+    "expected_reachable": "yes",
+    "note": "kotlin_demo: CommandService.runPing() concatenates host straight into Runtime.getRuntime().exec(); its only caller is a Ktor get(\"/ping\") handler nested inside route(\"/diagnostics\") { ... }, reached via Routing.kt's routing {} DSL -- exercises Kotlin's route-prefix-threading Ktor recognition"
+  },
+  {
+    "file": "UserRepository.kt",
+    "line": 6,
+    "expected_reachable": "yes",
+    "note": "kotlin_demo: UserRepository.findUser() builds a SQL string by concatenation from a username argument; its only caller is UserController.show(), a Spring-style @GetMapping(\"/users/{id}\") action -- exercises Kotlin's Spring-annotation entry-point recognition"
+  },
+  {
+    "file": "CommandService.kt",
+    "line": 21,
+    "expected_reachable": "no",
+    "note": "kotlin_demo: CommandService.orphanVulnerableHelper() has the identical Runtime.getRuntime().exec() shape as runPing() (line 7) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]
