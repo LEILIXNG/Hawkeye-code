@@ -346,5 +346,23 @@
     "line": 21,
     "expected_reachable": "no",
     "note": "kotlin_demo: CommandService.orphanVulnerableHelper() has the identical Runtime.getRuntime().exec() shape as runPing() (line 7) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
+  },
+  {
+    "file": "CommandService.scala",
+    "line": 15,
+    "expected_reachable": "yes",
+    "note": "scala_demo: CommandService.runPing() hands host straight to Seq(\"sh\", \"-c\", host).!!; its only caller is DiagnosticsController.ping(), registered by conf/routes' GET /ping controllers.DiagnosticsController.ping(host: String) line -- exercises Scala's Play routes-file entry-point resolution"
+  },
+  {
+    "file": "UserRepository.scala",
+    "line": 11,
+    "expected_reachable": "yes",
+    "note": "scala_demo: UserRepository.findUser() builds a SQL string by concatenation from a username argument; its only caller is UserController.show(), registered by conf/routes' GET /users/:id line -- exercises the same Play routes-file resolution across a second controller/service pair"
+  },
+  {
+    "file": "CommandService.scala",
+    "line": 29,
+    "expected_reachable": "no",
+    "note": "scala_demo: CommandService.orphanVulnerableHelper() has the identical Seq(\"sh\", \"-c\", cmd).!! call as runPing() (line 15) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]

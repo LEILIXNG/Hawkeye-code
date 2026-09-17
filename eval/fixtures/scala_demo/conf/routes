@@ -1,0 +1,8 @@
+# A small, self-contained Play-shaped routes file, checked into the repo
+# so eval/labels.json's Scala entries are reproducible without an
+# external download -- the same role web.php/routes.rb/Routing.kt play
+# for PHP/Ruby/Kotlin.
+GET     /ping                   controllers.DiagnosticsController.ping(host: String)
+GET     /ping/safe              controllers.DiagnosticsController.pingSafe(host: String)
+GET     /users/:id              controllers.UserController.show(id: String)
+GET     /users/safe/:id         controllers.UserController.showSafe(id: String)
