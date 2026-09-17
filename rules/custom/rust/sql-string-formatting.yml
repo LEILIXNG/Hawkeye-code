@@ -20,9 +20,9 @@
 # This is a plain pattern rule, not `mode: taint`, and deliberately
 # over-inclusive for the same reason command-injection.yml is: this
 # project's job for Semgrep is to surface candidates, not prove
-# reachability. For Rust specifically there is no call-graph indexer yet
-# (see rules/ruleset.yml's Rust section), so the verify stage judges every
-# candidate from its own function body alone.
+# reachability -- scanner/callgraph/rust_index.py reconstructs the request
+# path back to an entry point the same way it does for every other language
+# here (see rules/ruleset.yml's Rust section).
 #
 # Every shape above, and the shapes the rule must stay off (a fully literal
 # statement, an unrelated format! call), are pinned in

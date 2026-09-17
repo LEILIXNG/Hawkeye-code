@@ -65,6 +65,23 @@ methods and calls into the same graph, but deliberately declares no generic
 request entry point: C++ server frameworks do not share a reliable source
 annotation or registration shape. Framework adapters can add those signals
 later without changing the shared traversal.
+
+Rust support (2026-09-17), rust_syntax.py / rust_entrypoints.py /
+rust_index.py, same model reuse a fourth time. Ownership is read
+differently than in every class-based language above: a method is never
+declared inside the type it belongs to (`struct User {}` and
+`impl User { fn find(&self) {} }` are separate top-level items), so Owner
+comes fresh from the nearest enclosing `impl` block rather than from a type
+declaration that states every supertype once -- and because one type can
+gain trait impls from any number of separate `impl Trait for Type` blocks,
+index.supertypes accumulates per type here instead of being overwritten by
+the latest Owner computed, the one thing every earlier language's single
+type-declaration site let it skip. Entry points mirror Java/Python's
+attribute-macro recognition for actix-web and Rocket (`#[get("/x")]`) and
+Go/JS's registration-call recognition for axum and actix's builder style
+(`.route(path, get(handler))`, `.route(path, web::get().to(handler))`).
+Self-calls are simpler than Go's: `self` is a fixed grammar production here,
+not an author-named receiver variable that has to be compared by text.
 """
 from scanner.callgraph.entrypoints import (MESSAGE_ENTRY_ANNOTATIONS, REQUEST_MAPPING_ANNOTATIONS,
                                            REQUEST_PARAM_ANNOTATIONS, REQUEST_PARAM_TYPES,
@@ -80,6 +97,9 @@ from scanner.callgraph.model import ANY_ARITY, MAX_DEPTH, Call, Index, Method, O
 from scanner.callgraph.mybatis import MYBATIS_STATEMENT_TAGS, index_mybatis_mappers
 from scanner.callgraph.python_entrypoints import DJANGO_VIEW_SUPERTYPES, ROUTE_DECORATOR_NAMES
 from scanner.callgraph.python_index import index_python_workspace
+from scanner.callgraph.rust_entrypoints import HANDLER_PARAM_TYPES as RUST_HANDLER_PARAM_TYPES
+from scanner.callgraph.rust_entrypoints import HTTP_ROUTE_VERBS as RUST_HTTP_ROUTE_VERBS
+from scanner.callgraph.rust_index import index_rust_workspace
 from scanner.callgraph.traverse import callers_of, enclosing_method, trace_to_entry_points
 
 __all__ = [
@@ -87,9 +107,10 @@ __all__ = [
     "HTTP_METHOD_NAMES", "IDENTIFIER_LITERAL", "MAX_DEPTH",
     "MESSAGE_ENTRY_ANNOTATIONS", "MYBATIS_STATEMENT_TAGS", "NEST_DECORATOR_NAMES",
     "REQUEST_MAPPING_ANNOTATIONS", "REQUEST_PARAM_ANNOTATIONS", "REQUEST_PARAM_TYPES",
-    "ROUTE_DECORATOR_NAMES", "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
+    "ROUTE_DECORATOR_NAMES", "RUST_HANDLER_PARAM_TYPES", "RUST_HTTP_ROUTE_VERBS",
+    "SERVLET_ENTRY_METHODS", "SERVLET_SUPERTYPES",
     "Call", "Index", "Method", "Owner", "callers_of", "enclosing_method",
     "index_cpp_workspace", "index_go_workspace", "index_js_workspace", "index_mybatis_mappers",
-    "index_python_workspace", "index_workspace",
+    "index_python_workspace", "index_rust_workspace", "index_workspace",
     "trace_to_entry_points",
 ]

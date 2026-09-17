@@ -24,10 +24,10 @@
 # This is a plain pattern rule, not `mode: taint`, and deliberately
 # over-inclusive: this project's job for Semgrep is to surface candidates,
 # not prove reachability -- that's what the context extraction + LLM verify
-# stages are for (docs/framework.md sections 3-4). For Rust specifically,
-# there is no call-graph indexer yet (see rules/ruleset.yml's Rust section),
-# so the verify stage judges every candidate from its own function body
-# alone, with no request-entry-point evidence either way.
+# stages are for (docs/framework.md sections 3-4). scanner/callgraph/
+# rust_index.py reconstructs the request path back to an actix-web/Rocket/
+# axum entry point the same way it does for every other language here (see
+# rules/ruleset.yml's Rust section).
 #
 # Every shape above, and the literal-only shapes the rule must stay off, are
 # pinned in command-injection.rs and checked by `semgrep --test` from

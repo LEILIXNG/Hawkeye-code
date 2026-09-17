@@ -6,7 +6,7 @@
 
 <p align="center"><a href="README.zh-CN.md">中文</a> · English</p>
 
-A local-first SAST tool for server-side web apps. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix. Java/Spring, Python (Flask, Django, FastAPI), JavaScript/TypeScript (Express, Koa, NestJS), Go (net/http, gorilla/mux, chi, gin, echo), and C++ all have full call-graph reachability tracing. Rust is scanned by the rule library too (vendored checks plus custom command-injection/SQL-injection rules), but has no call-graph indexer yet, so a Rust finding is judged from its own function body alone.
+A local-first SAST tool for server-side web apps. Semgrep surfaces candidate sinks, a self-built cross-file call graph reconstructs how a request reaches each one, and an LLM rules on reachability and gives a fix. Java/Spring, Python (Flask, Django, FastAPI), JavaScript/TypeScript (Express, Koa, NestJS), Go (net/http, gorilla/mux, chi, gin, echo), C++, and Rust (actix-web, Rocket, axum) all have full call-graph reachability tracing.
 
 Only findings with a complete source→sink path are reported. Everything runs on your own machine.
 
@@ -111,15 +111,15 @@ Skip `04_translate.py` and the report reads in whichever language the model answ
 python -m pytest tests/ -v
 ```
 
-560 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph for all five language groups, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
+583 unit tests cover the deterministic half — dedup, path handling, context extraction, the call graph for all six language groups, the rule set contract, the HTTP API, and the launcher/window lifecycle. No test makes a real LLM call; LLM quality is tracked separately through `eval/labels.json`.
 
 ## How it works
 
-- **Cross-file analysis, five language groups.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Java, Python and JavaScript/TypeScript retain their framework-specific entry recognizers; Go recognises net/http, gorilla/mux, chi, gin and echo route registrations. C++ recognises Crow, Drogon, Oat++ and gRPC entries and uses tree-sitter types, owners, overloads, template calls, local include macros and common function-pointer flows to remove ambiguous edges. A mixed-language checkout indexes into one shared graph.
+- **Cross-file analysis, six language groups.** Semgrep OSS taint analysis stops at the method boundary. `scanner/callgraph/` walks the other way — from the sink up through its callers, across files — until it reaches an entry point a request can come in through. Java, Python and JavaScript/TypeScript retain their framework-specific entry recognizers; Go recognises net/http, gorilla/mux, chi, gin and echo route registrations. C++ recognises Crow, Drogon, Oat++ and gRPC entries and uses tree-sitter types, owners, overloads, template calls, local include macros and common function-pointer flows to remove ambiguous edges. Rust recognises actix-web/Rocket's attribute macros (`#[get("/x")]`) and axum/actix's route-registration calls (`.route(path, get(handler))`); ownership comes from the nearest `impl` block rather than a class body, and a type's trait impls accumulate across however many separate `impl Trait for Type` blocks declare them. A mixed-language checkout indexes into one shared graph.
 - **Semgrep for candidates, LLM for dataflow verdicts.** Request-driven candidates keep the `reachable` / `sanitized` / `confidence` / `reasoning` contract. Deterministic C++ memory, null, secret and file-operation findings use rule validators and are labelled **Statically confirmed** without an irrelevant request-reachability LLM call.
 - **Hybrid scope.** Generic static-property findings remain excluded by CWE, while custom rules carrying a deterministic validator can explicitly opt into the static-verdict path.
 - **Risk from CVSS, not from the engine's own severity.** Semgrep grades everything ERROR or WARNING, which cannot separate an unauthenticated SQL injection from a weak hash. `scanner/cvss.py` maps each CWE to a v3.1 base vector and computes the score from it; reachability then grades that band, so a finding proved unreachable ends up lowest whatever it scored.
-- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated for server-side Java/Spring, Python, JavaScript/TypeScript, Go and (rule-library only, see above) Rust. Nineteen custom rules under `rules/custom` add project-specific Java/XML coverage, eight C++ checks (`CPP001`–`CPP008`), and Rust command-injection/SQL-injection rules the vendored `rust/lang/security` bucket has no equivalent of. C++ rules use Semgrep's C++ AST; `.h` files require C++-specific content before their findings are accepted.
+- **Reproducible rules.** `rules/vendor/semgrep-rules` is a locked submodule, curated for server-side Java/Spring, Python, JavaScript/TypeScript, Go and Rust. Nineteen custom rules under `rules/custom` add project-specific Java/XML coverage, eight C++ checks (`CPP001`–`CPP008`), and Rust command-injection/SQL-injection rules the vendored `rust/lang/security` bucket has no equivalent of. C++ rules use Semgrep's C++ AST; `.h` files require C++-specific content before their findings are accepted.
 
 Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 
@@ -127,7 +127,7 @@ Full architecture: `docs/framework.md`. Development conventions: `CLAUDE.md`.
 
 Phase 1 is done — upload → scan → report works end to end.
 
-- 45 hand-labeled candidates in `eval/labels.json`: 19 Java, 9 Python, 7 JavaScript, 8 C++ (`eval/fixtures/cpp_demo`) and 2 Rust (`eval/fixtures/rust_demo`). C++ command-execution rules retain request reachability; deterministic CPP004–CPP008 findings use the static-verdict path. Rust has neither: both labels are `no`, since there is no call-graph indexer yet to show whether a value came from a request.
+- 46 hand-labeled candidates in `eval/labels.json`: 19 Java, 9 Python, 7 JavaScript, 8 C++ (`eval/fixtures/cpp_demo`) and 3 Rust (`eval/fixtures/rust_demo`). C++ command-execution rules retain request reachability; deterministic CPP004–CPP008 findings use the static-verdict path. Rust's three labels exercise the same request-reachability path as Python/JS/Go: two sinks reached through an actix-web handler and a helper function, one an orphan nothing calls.
 - C++ resolution is source based and deliberately does not execute a build. Conditional compilation, generated code and virtual/function-pointer targets that require a compiler database remain conservative rather than pretending to be exact.
 - The verifier flips roughly 16% of verdicts between identical re-runs, so a ±1 move on any label set is noise. Engine changes are argued with deterministic counts instead.
 - Java measured on a real 13-module Maven application, not only on a teaching target.

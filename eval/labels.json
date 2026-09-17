@@ -258,15 +258,21 @@
     "note": "cpp_demo CPP008: the insecure permission is retained as a confirmed static finding rather than downgraded for lacking request dataflow"
   },
   {
-    "file": "vulnerabilities.rs",
-    "line": 4,
-    "expected_reachable": "no",
-    "note": "rust_demo: ping() shells out via Command::new(\"sh\").arg(\"-c\").arg(host) with a tainted-looking argument, but Rust has no call-graph indexer yet (see rules/ruleset.yml's Rust section) -- there is no entry point evidence either way, same as cpp_demo's dynamic rules before C++ had its own indexer"
+    "file": "main.rs",
+    "line": 16,
+    "expected_reachable": "yes",
+    "note": "rust_demo: run_ping() shells out via Command::new(\"sh\").arg(\"-c\").arg(host); its only caller is ping(), an actix-web #[get(\"/ping\")] handler -- exercises Rust's attribute-macro entry-point recognition and cross-function call-graph tracing"
   },
   {
-    "file": "vulnerabilities.rs",
-    "line": 15,
+    "file": "main.rs",
+    "line": 36,
+    "expected_reachable": "yes",
+    "note": "rust_demo: find_user() builds a SQL string with format!() from a username parameter; its only caller is users(), an actix-web #[get(\"/users\")] handler"
+  },
+  {
+    "file": "main.rs",
+    "line": 57,
     "expected_reachable": "no",
-    "note": "rust_demo: find_user() builds a SQL string with format!() from a username parameter; unreachable for the same reason as line 4 -- no Rust call graph to show whether username ever comes from a request"
+    "note": "rust_demo: orphan_vulnerable_helper() has the identical Command::new(\"sh\").arg(\"-c\") call as run_ping() (line 16) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]
