@@ -32,6 +32,7 @@ tree-sitter-php>=0.23
 tree-sitter-ruby>=0.23
 tree-sitter-kotlin>=1.1.0
 tree-sitter-scala>=0.23
+tree-sitter-elixir>=0.3
 # The launcher window (apps/desktop.py). Wraps the OS's own webview (WebView2
 # on Windows, WebKit on mac/Linux) rather than bundling a browser engine, so
 # this stays a small pure-Python dependency, not another Chromium download.
