@@ -292,5 +292,23 @@
     "line": 106,
     "expected_reachable": "no",
     "note": "csharp_demo: OrphanService.OrphanVulnerableHelper() has the identical Process.Start(cmd) call as CommandService.RunPing() (line 64) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
+  },
+  {
+    "file": "CommandService.php",
+    "line": 14,
+    "expected_reachable": "yes",
+    "note": "php_demo: CommandService::runPing() passes host straight to exec(); its only caller is DiagnosticsController::ping(), a Symfony-style #[Route(\"/ping\", methods: [\"GET\"])] attribute action -- exercises PHP's attribute-routing entry-point recognition and cross-class call-graph tracing"
+  },
+  {
+    "file": "UserRepository.php",
+    "line": 18,
+    "expected_reachable": "yes",
+    "note": "php_demo: UserRepository::findUser() builds a SQL string by concatenation from a username argument, straight into Connection::executeQuery(); its only caller is UserController::show(), registered by web.php's Route::get('/users', [UserController::class, 'show']) facade call -- exercises PHP's cross-file Laravel route-facade resolution"
+  },
+  {
+    "file": "CommandService.php",
+    "line": 35,
+    "expected_reachable": "no",
+    "note": "php_demo: CommandService::orphanVulnerableHelper() has the identical exec($cmd) call as runPing() (line 14) but nothing anywhere calls it -- tests that the verifier says not-reachable, not not-vulnerable"
   }
 ]
